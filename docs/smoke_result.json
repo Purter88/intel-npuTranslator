@@ -1,0 +1,122 @@
+[
+  {
+    "src": "zh",
+    "tgt": "en",
+    "input": "今天天气很好,我们一起去公园散步吧。",
+    "output": "It’s a nice day today. Let's go for a walk in the park together.",
+    "ok": true,
+    "elapsed_s": 1.29
+  },
+  {
+    "src": "zh",
+    "tgt": "en",
+    "input": "这个项目的目标是构建一个完全离线的本地翻译程序。",
+    "output": "The goal of this project is to develop a completely offline local translation program.",
+    "ok": true,
+    "elapsed_s": 1.015
+  },
+  {
+    "src": "zh",
+    "tgt": "en",
+    "input": "请确保所有数据都留在这台机器上。",
+    "output": "Please make sure that all data remains on this machine.",
+    "ok": true,
+    "elapsed_s": 0.916
+  },
+  {
+    "src": "en",
+    "tgt": "zh",
+    "input": "The weather is nice today, let's go for a walk in the park.",
+    "output": "今天天气不错，让我们一起去公园里散步吧。",
+    "ok": true,
+    "elapsed_s": 0.916
+  },
+  {
+    "src": "en",
+    "tgt": "zh",
+    "input": "Artificial intelligence is profoundly changing the way we live.",
+    "output": "人工智能正在深刻地改变我们的生活方式。",
+    "ok": true,
+    "elapsed_s": 0.766
+  },
+  {
+    "src": "en",
+    "tgt": "zh",
+    "input": "Please make sure all data stays on this machine.",
+    "output": "请确保所有数据都保留在这台机器上。",
+    "ok": true,
+    "elapsed_s": 0.864
+  },
+  {
+    "src": "zh",
+    "tgt": "ja",
+    "input": "你好,很高兴认识你。",
+    "output": "こんにち、お会いできて嬉しいです。",
+    "ok": true,
+    "elapsed_s": 1.024
+  },
+  {
+    "src": "zh",
+    "tgt": "ja",
+    "input": "这是一份关于人工智能发展的报告。",
+    "output": "これは、人工知能の発展に関する報告書です。",
+    "ok": true,
+    "elapsed_s": 1.041
+  },
+  {
+    "src": "zh",
+    "tgt": "ja",
+    "input": "请把这份文件翻译成日语。",
+    "output": "この文書を日本語に翻訳してください。",
+    "ok": true,
+    "elapsed_s": 0.86
+  },
+  {
+    "src": "en",
+    "tgt": "ko",
+    "input": "Good morning, how are you today?",
+    "output": "안녕하세요, 오늘은 몇 살이신가요? 어떻게 지내고 계신가요?",
+    "ok": true,
+    "elapsed_s": 1.427
+  },
+  {
+    "src": "en",
+    "tgt": "ko",
+    "input": "The meeting has been rescheduled to next Monday.",
+    "output": "회의는 다음 월요일로 연기되었습니다.",
+    "ok": true,
+    "elapsed_s": 0.981
+  },
+  {
+    "src": "en",
+    "tgt": "ko",
+    "input": "Thank you for your hard work.",
+    "output": "당신의 열심한 노력에 감사합니다.",
+    "ok": true,
+    "elapsed_s": 0.964
+  },
+  {
+    "src": "zh",
+    "tgt": "fr",
+    "input": "我来自中国,很高兴来到这里。",
+    "output": "Je viens de la Chine, je suis très heureux d'être ici.",
+    "ok": true,
+    "elapsed_s": 1.211
+  },
+  {
+    "src": "zh",
+    "tgt": "fr",
+    "input": "这份合同需要在明天之前签署。",
+    "output": "Ce contrat doit être signé avant demain.",
+    "ok": true,
+    "elapsed_s": 0.901
+  },
+  {
+    "src": "zh",
+    "tgt": "fr",
+    "input": "祝您旅途愉快。",
+    "output": "Je vous souhaite un agréable voyage.",
+    "ok": true,
+    "elapsed_s": 0.927
+  }
+]

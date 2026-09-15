@@ -1,0 +1,116 @@
+# ============================================================
+# Intel-NPU-Translator
+# 原则：源码 / 文档 / 实测数据入库；环境、权重、编译缓存不入库
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---------- 虚拟环境 ----------
+# 运行时 venv 与导出专用 venv 都不入库（几百 MB，用 requirements.txt 重建）
+.venv/
+.venv-export/
+venv/
+env/
+ENV/
+
+# ---------- 快速部署产物 ----------
+# scripts/build.py 生成的命令转发脚本（nputr.cmd / nputweb.cmd）。
+# 可随时由脚本重建，且内容里带本机路径，不入库。
+bin/
+
+# ---------- 测试 / 覆盖率 / 静态检查 ----------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+
+# ---------- 模型权重 ----------
+# 体积 1 GB 级，且可从 ModelScope / HF 重新拉取（见 scripts/fetch_model.py）
+# 用 models/* 而非 models/，这样 !models/.gitkeep 的反向规则才能生效
+models/*
+!models/.gitkeep
+*.safetensors
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# ---------- NPUW 编译缓存 ----------
+# 可达数 GB，且与「驱动版本 + OpenVINO 版本 + 静态形状」强绑定，
+# 换机器或升级后必然失效重建，入库只会污染仓库
+.npucache/
+
+# ---------- 环境变量 / 密钥 ----------
+.env
+.env.local
+.env.*.local
+
+# ---------- nputweb 的自签证书家目录 ----------
+# 自签证书与私钥落在家目录下（~/.nputweb/），**不要入库**：
+# 私钥一旦进了版本库就是永久泄漏（重写历史也救不回已经 clone 过的人）。
+# 这条规则只是兜底 —— 真正的证书本来就不在仓库里。
+.nputweb/
+
+# ---------- 日志 ----------
+*.log
+logs/
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- WorkBuddy 工作数据 ----------
+# 会话与项目记忆，属于工具状态而非项目源码，不入库
+.workbuddy/
+
+# ---------- 过程中的阶段性报告 ----------
+# 评审与调研会产出过程稿（讨论稿、决策矩阵、量化实验记录）。
+# 结论直接沉淀进 README 的对应章节，过程稿不入库 —— 否则仓库里会堆满
+# 「某个结论的第 3 版更正」，反而淹没有效信息。
+deliverables/
+
+# ---------- 一次性环境探测产物 ----------
+# 结论直接沉淀进 README，原始输出不再保留
+_env.txt
+_hwinfo.txt
+
+# ---------- 测试运行时的临时输出 ----------
+# pytest 的 --basetemp 指向仓库内时（本机 coreutils 残缺，常在仓库根开临时目录）
+# 会留下 tmp_path 的残骸。**证书相关的用例会在里面生成自签私钥** ——
+# 一把私钥进了版本库就是永久泄漏（重写历史也救不回已经 clone 过的人）。
+# .pytest_cache/ 已在上面排除，这里补的是显式 basetemp 与重定向出来的输出文件。
+.pytest_tmp/
+.pytest_tmp*/
+.pytest_out.txt
+.red_out.txt

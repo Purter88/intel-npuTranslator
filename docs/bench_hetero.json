@@ -1,0 +1,277 @@
+{
+  "runs": [
+    {
+      "mode": "npu",
+      "threads": "0",
+      "core_type": "any",
+      "workers": [
+        "NPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 7.054,
+      "infer_s": 8.432,
+      "chars": 809,
+      "chars_per_s": 95.94,
+      "rss_after_load_mb": 1762.9,
+      "rss_peak_mb": 1872.9,
+      "failed": 0,
+      "per_device": {
+        "NPU": {
+          "segments": 6,
+          "elapsed_s": 8.432,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "cpu",
+      "threads": "0",
+      "core_type": "any",
+      "workers": [
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 3.151,
+      "infer_s": 5.78,
+      "chars": 809,
+      "chars_per_s": 139.98,
+      "rss_after_load_mb": 236.3,
+      "rss_peak_mb": 2197.9,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 6,
+          "elapsed_s": 5.779,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "hetero",
+      "threads": "0",
+      "core_type": "any",
+      "workers": [
+        "NPU",
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 4.815,
+      "infer_s": 4.845,
+      "chars": 809,
+      "chars_per_s": 166.96,
+      "rss_after_load_mb": 1880.6,
+      "rss_peak_mb": 3930.8,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 3,
+          "elapsed_s": 4.448,
+          "chars": 364
+        },
+        "NPU": {
+          "segments": 3,
+          "elapsed_s": 4.845,
+          "chars": 445
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "cpu",
+      "threads": "0",
+      "core_type": "any",
+      "workers": [
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 3.153,
+      "infer_s": 6.381,
+      "chars": 809,
+      "chars_per_s": 126.79,
+      "rss_after_load_mb": 237.0,
+      "rss_peak_mb": 2198.1,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 6,
+          "elapsed_s": 6.381,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "cpu",
+      "threads": "8",
+      "core_type": "any",
+      "workers": [
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 3.178,
+      "infer_s": 6.09,
+      "chars": 809,
+      "chars_per_s": 132.83,
+      "rss_after_load_mb": 236.2,
+      "rss_peak_mb": 2202.8,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 6,
+          "elapsed_s": 6.09,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "cpu",
+      "threads": "12",
+      "core_type": "any",
+      "workers": [
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 3.349,
+      "infer_s": 5.725,
+      "chars": 809,
+      "chars_per_s": 141.3,
+      "rss_after_load_mb": 236.4,
+      "rss_peak_mb": 2202.5,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 6,
+          "elapsed_s": 5.726,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "cpu",
+      "threads": "16",
+      "core_type": "any",
+      "workers": [
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 3.327,
+      "infer_s": 5.749,
+      "chars": 809,
+      "chars_per_s": 140.73,
+      "rss_after_load_mb": 239.4,
+      "rss_peak_mb": 2207.9,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 6,
+          "elapsed_s": 5.749,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    },
+    {
+      "mode": "cpu",
+      "threads": "24",
+      "core_type": "any",
+      "workers": [
+        "CPU"
+      ],
+      "max_new_tokens": 96,
+      "segments": 6,
+      "load_s": 3.56,
+      "infer_s": 6.641,
+      "chars": 809,
+      "chars_per_s": 121.82,
+      "rss_after_load_mb": 240.3,
+      "rss_peak_mb": 2208.1,
+      "failed": 0,
+      "per_device": {
+        "CPU": {
+          "segments": 6,
+          "elapsed_s": 6.641,
+          "chars": 809
+        }
+      },
+      "translations": [
+        "It’s a nice day today. We decided to go for a walk in the park. By the way, we also decided to buy two lattes at the coffee shop along the way.",
+        "Artificial intelligence technology is profoundly changing the way software is developed. Programmers are constantly learning new tools and methods to use in their work.",
+        "The quick brown fox jumps over the lazy dog, while the sun sets behind the mountains.",
+        "This report provides a detailed analysis of the structural changes in the global semiconductor supply chain over the past three years, as well as insights into future trends.",
+        "Be sure to run a complete set of unit tests before submitting the code. Also, ensure that all boundary conditions are handled correctly.",
+        "The quality of machine translation has improved significantly with the advent of large language models."
+      ]
+    }
+  ],
+  "speedup_vs_best_single": 1.193,
+  "best_single": {
+    "mode": "cpu",
+    "infer_s": 5.78,
+    "chars_per_s": 139.98
+  },
+  "hetero": {
+    "infer_s": 4.845,
+    "chars_per_s": 166.96
+  },
+  "verdict": "达标"
+}

@@ -1,0 +1,6 @@
+# 模型权重目录（内容已被 .gitignore 排除）
+#
+# 首次使用请先拉取模型：
+#     .\.venv\Scripts\python.exe scripts\fetch_model.py --repo rainhenry/HY-MT1.5-1.8B-int4-ov-npu
+#
+# 默认主用权重：HY-MT1.5-1.8B INT4（OpenVINO IR，1.02 GB），NPU 就绪

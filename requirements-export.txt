@@ -1,0 +1,19 @@
+# 导出专用依赖（与运行时版本解耦，模型）
+# 用法：
+#     python -m venv .venv-export
+#     .\.venv-export\Scripts\python.exe -m pip install -r requirements-export.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+# ⚠️ 不要装进运行时 .venv：optimum-intel / transformers / torch 与
+#    openvino-genai 版本强绑定，混装会引发 R3 版本冲突。
+#
+# 当前主用权重（ModelScope rainhenry/HY-MT1.5-1.8B-int4-ov-npu）已自带 INT4 量化，
+# 绝大多数情况下**不需要**跑导出流程；只有换模型或换量化方式时才用。
+
+# torch 需要用 PyTorch 官方 CPU 源（PyPI 上的 torch 默认带 CUDA，体积大且本机 NPU 用不上）
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+openvino==2026.3.1
+torch
+nncf
+optimum-intel
+transformers

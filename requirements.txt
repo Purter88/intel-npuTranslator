@@ -1,0 +1,25 @@
+# 运行时依赖（venv: Python 3.11）
+# 版本组合已实测通过（2026-09-11, Core Ultra 9 275HX / NPU4）
+#
+# ⚠️ 本文件必须与 pyproject.toml 的 [project.dependencies] + [web] extra 保持一致，
+# 由 tests/test_deps_consistency.py 守着（漂移会直接红灯）。
+# 两份并存是历史现状：pyproject 给 pip / 打包用，本文件给 scripts/*.ps1 与快速部署用。
+openvino==2026.3.1
+openvino-genai==2026.3.1.0
+openvino-tokenizers==2026.3.1.0
+
+# 服务层（nputweb）
+fastapi
+uvicorn[standard]
+# 自签 TLS 证书的唯一来源：Windows 没有自带 openssl 命令，
+# 缺了它 nputweb 起不来（见「WebUI（nputweb）」）
+cryptography
+
+# CLI
+typer
+
+# 模型下载（ModelScope，国内优先）
+modelscope
+
+# 监控
+psutil

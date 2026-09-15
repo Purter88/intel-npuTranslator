@@ -1,0 +1,585 @@
+{
+  "env": {
+    "time": "2026-09-13T15:29:45+08:00",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "python": "3.11.9",
+    "cpu_count": 24,
+    "openvino": "2026.3.1-22476-759c5a6ab8c-releases/2026/3",
+    "npu": {
+      "available": true,
+      "FULL_DEVICE_NAME": "Intel(R) AI Boost",
+      "DEVICE_ARCHITECTURE": "3720",
+      "NPU_DRIVER_VERSION": 1005540,
+      "NPU_MAX_TILES": 2,
+      "DEVICE_UUID": "80d1d11eb73811eab3de0242ac130004"
+    }
+  },
+  "model": "models/HY-MT1.5-1.8B-int4-ov-npu",
+  "settings": {
+    "repeats": 3,
+    "max_new_tokens": 128,
+    "warmup": true,
+    "prompts": 5,
+    "devices": [
+      "NPU",
+      "GPU.0",
+      "CPU"
+    ]
+  },
+  "devices": [
+    {
+      "device": "NPU",
+      "ok": true,
+      "config": {
+        "MAX_PROMPT_LEN": 512,
+        "MIN_RESPONSE_LEN": 256,
+        "NPUW_CACHE_DIR": ".npucache",
+        "GENERATE_HINT": "BEST_PERF"
+      },
+      "load_s": 3.684,
+      "warmup_s": 1.341,
+      "avg_tok_s": 32.6999,
+      "avg_ttft_s": 0.5902,
+      "avg_total_s": 1.1782,
+      "avg_tokens": 20.0,
+      "peak_rss_mb": 1873.0,
+      "error": null,
+      "warnings": [],
+      "runs": [
+        {
+          "prompt_id": 0,
+          "repeat": 0,
+          "tokens": 19,
+          "total_s": 1.1351,
+          "ttft_s": 0.5891,
+          "decode_s": 0.5461,
+          "tok_s": 32.963,
+          "rss_mb": 1873.0,
+          "output": "It’s a nice day today. Let's go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 0,
+          "tokens": 11,
+          "total_s": 0.8817,
+          "ttft_s": 0.5901,
+          "decode_s": 0.2917,
+          "tok_s": 34.284,
+          "rss_mb": 1872.2,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 0,
+          "tokens": 32,
+          "total_s": 1.564,
+          "ttft_s": 0.5933,
+          "decode_s": 0.9707,
+          "tok_s": 31.936,
+          "rss_mb": 1872.4,
+          "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 0,
+          "tokens": 27,
+          "total_s": 1.4013,
+          "ttft_s": 0.5882,
+          "decode_s": 0.8132,
+          "tok_s": 31.974,
+          "rss_mb": 1872.2,
+          "output": "Veuillez garantir que toutes les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 0,
+          "tokens": 11,
+          "total_s": 0.883,
+          "ttft_s": 0.5887,
+          "decode_s": 0.2943,
+          "tok_s": 33.978,
+          "rss_mb": 1872.1,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        },
+        {
+          "prompt_id": 0,
+          "repeat": 1,
+          "tokens": 19,
+          "total_s": 1.1668,
+          "ttft_s": 0.6016,
+          "decode_s": 0.5653,
+          "tok_s": 31.843,
+          "rss_mb": 1872.2,
+          "output": "It’s a nice day today. Let's go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 1,
+          "tokens": 11,
+          "total_s": 0.8808,
+          "ttft_s": 0.5878,
+          "decode_s": 0.293,
+          "tok_s": 34.128,
+          "rss_mb": 1872.1,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 1,
+          "tokens": 32,
+          "total_s": 1.5597,
+          "ttft_s": 0.5862,
+          "decode_s": 0.9735,
+          "tok_s": 31.843,
+          "rss_mb": 1872.3,
+          "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 1,
+          "tokens": 27,
+          "total_s": 1.3973,
+          "ttft_s": 0.5867,
+          "decode_s": 0.8106,
+          "tok_s": 32.075,
+          "rss_mb": 1872.3,
+          "output": "Veuillez garantir que toutes les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 1,
+          "tokens": 11,
+          "total_s": 0.886,
+          "ttft_s": 0.5898,
+          "decode_s": 0.2962,
+          "tok_s": 33.764,
+          "rss_mb": 1872.2,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        },
+        {
+          "prompt_id": 0,
+          "repeat": 2,
+          "tokens": 19,
+          "total_s": 1.1638,
+          "ttft_s": 0.5929,
+          "decode_s": 0.5709,
+          "tok_s": 31.531,
+          "rss_mb": 1872.3,
+          "output": "It’s a nice day today. Let's go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 2,
+          "tokens": 11,
+          "total_s": 0.8969,
+          "ttft_s": 0.5888,
+          "decode_s": 0.308,
+          "tok_s": 32.466,
+          "rss_mb": 1872.2,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 2,
+          "tokens": 32,
+          "total_s": 1.5666,
+          "ttft_s": 0.5956,
+          "decode_s": 0.9709,
+          "tok_s": 31.928,
+          "rss_mb": 1872.2,
+          "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 2,
+          "tokens": 27,
+          "total_s": 1.412,
+          "ttft_s": 0.5882,
+          "decode_s": 0.8238,
+          "tok_s": 31.562,
+          "rss_mb": 1872.4,
+          "output": "Veuillez garantir que toutes les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 2,
+          "tokens": 11,
+          "total_s": 0.8777,
+          "ttft_s": 0.5855,
+          "decode_s": 0.2922,
+          "tok_s": 34.226,
+          "rss_mb": 1872.3,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        }
+      ]
+    },
+    {
+      "device": "GPU.0",
+      "ok": true,
+      "config": {},
+      "load_s": 7.813,
+      "warmup_s": 0.96,
+      "avg_tok_s": 25.3909,
+      "avg_ttft_s": 0.1874,
+      "avg_total_s": 0.985,
+      "avg_tokens": 20.6667,
+      "peak_rss_mb": 1989.2,
+      "error": null,
+      "warnings": [],
+      "runs": [
+        {
+          "prompt_id": 0,
+          "repeat": 0,
+          "tokens": 19,
+          "total_s": 0.745,
+          "ttft_s": 0.1622,
+          "decode_s": 0.5828,
+          "tok_s": 30.884,
+          "rss_mb": 1979.6,
+          "output": "The weather is very nice today. Let’s go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 0,
+          "tokens": 11,
+          "total_s": 0.5412,
+          "ttft_s": 0.1953,
+          "decode_s": 0.3459,
+          "tok_s": 28.913,
+          "rss_mb": 1980.3,
+          "output": "人工智能的快速发展已经给我们的日常生活带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 0,
+          "tokens": 36,
+          "total_s": 1.5486,
+          "ttft_s": 0.215,
+          "decode_s": 1.3335,
+          "tok_s": 26.247,
+          "rss_mb": 1988.9,
+          "output": "このプロジェクトの目標は、完全にオフラインで機能するローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 0,
+          "tokens": 27,
+          "total_s": 1.3873,
+          "ttft_s": 0.2355,
+          "decode_s": 1.1518,
+          "tok_s": 22.574,
+          "rss_mb": 1988.9,
+          "output": "Veuillez assurer que tous les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 0,
+          "tokens": 11,
+          "total_s": 0.7473,
+          "ttft_s": 0.3436,
+          "decode_s": 0.4036,
+          "tok_s": 24.776,
+          "rss_mb": 1989.1,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        },
+        {
+          "prompt_id": 0,
+          "repeat": 1,
+          "tokens": 19,
+          "total_s": 0.8774,
+          "ttft_s": 0.1561,
+          "decode_s": 0.7214,
+          "tok_s": 24.953,
+          "rss_mb": 1989.1,
+          "output": "The weather is very nice today. Let’s go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 1,
+          "tokens": 11,
+          "total_s": 0.6137,
+          "ttft_s": 0.2273,
+          "decode_s": 0.3864,
+          "tok_s": 25.882,
+          "rss_mb": 1988.9,
+          "output": "人工智能的快速发展已经给我们的日常生活带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 1,
+          "tokens": 33,
+          "total_s": 1.5708,
+          "ttft_s": 0.1897,
+          "decode_s": 1.3811,
+          "tok_s": 23.169,
+          "rss_mb": 1989.2,
+          "output": "このプロジェクトの目標は、完全にオフラインなローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 1,
+          "tokens": 29,
+          "total_s": 1.3106,
+          "ttft_s": 0.1104,
+          "decode_s": 1.2001,
+          "tok_s": 23.33,
+          "rss_mb": 1988.9,
+          "output": "Veuillez s’assurer que toutes les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 1,
+          "tokens": 11,
+          "total_s": 0.4828,
+          "ttft_s": 0.1527,
+          "decode_s": 0.3301,
+          "tok_s": 30.293,
+          "rss_mb": 1989.1,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        },
+        {
+          "prompt_id": 0,
+          "repeat": 2,
+          "tokens": 19,
+          "total_s": 0.954,
+          "ttft_s": 0.1592,
+          "decode_s": 0.7948,
+          "tok_s": 22.647,
+          "rss_mb": 1988.9,
+          "output": "The weather is very nice today. Let’s go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 2,
+          "tokens": 11,
+          "total_s": 0.6063,
+          "ttft_s": 0.143,
+          "decode_s": 0.4633,
+          "tok_s": 21.585,
+          "rss_mb": 1989.1,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 2,
+          "tokens": 33,
+          "total_s": 1.775,
+          "ttft_s": 0.2235,
+          "decode_s": 1.5515,
+          "tok_s": 20.625,
+          "rss_mb": 1752.9,
+          "output": "このプロジェクトの目標は、完全にオフラインなローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 2,
+          "tokens": 29,
+          "total_s": 1.0083,
+          "ttft_s": 0.1093,
+          "decode_s": 0.8991,
+          "tok_s": 31.143,
+          "rss_mb": 1752.9,
+          "output": "Veuillez s’assurer que toutes les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 2,
+          "tokens": 11,
+          "total_s": 0.6069,
+          "ttft_s": 0.1875,
+          "decode_s": 0.4194,
+          "tok_s": 23.844,
+          "rss_mb": 1722.7,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        }
+      ]
+    },
+    {
+      "device": "CPU",
+      "ok": true,
+      "config": {},
+      "load_s": 2.123,
+      "warmup_s": 2.139,
+      "avg_tok_s": 45.5555,
+      "avg_ttft_s": 0.1518,
+      "avg_total_s": 0.5855,
+      "avg_tokens": 20.0,
+      "peak_rss_mb": 3472.0,
+      "error": null,
+      "warnings": [],
+      "runs": [
+        {
+          "prompt_id": 0,
+          "repeat": 0,
+          "tokens": 19,
+          "total_s": 0.5749,
+          "ttft_s": 0.1558,
+          "decode_s": 0.4191,
+          "tok_s": 42.952,
+          "rss_mb": 3467.6,
+          "output": "It’s a nice day today. Let's go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 0,
+          "tokens": 11,
+          "total_s": 0.4284,
+          "ttft_s": 0.1626,
+          "decode_s": 0.2657,
+          "tok_s": 37.631,
+          "rss_mb": 3472.0,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 0,
+          "tokens": 32,
+          "total_s": 1.1141,
+          "ttft_s": 0.1937,
+          "decode_s": 0.9203,
+          "tok_s": 33.683,
+          "rss_mb": 3470.8,
+          "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 0,
+          "tokens": 27,
+          "total_s": 0.9796,
+          "ttft_s": 0.2189,
+          "decode_s": 0.7607,
+          "tok_s": 34.179,
+          "rss_mb": 3470.8,
+          "output": "Veuillez garantir que tous les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 0,
+          "tokens": 11,
+          "total_s": 0.4709,
+          "ttft_s": 0.2073,
+          "decode_s": 0.2636,
+          "tok_s": 37.935,
+          "rss_mb": 3471.9,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        },
+        {
+          "prompt_id": 0,
+          "repeat": 1,
+          "tokens": 19,
+          "total_s": 0.5405,
+          "ttft_s": 0.1465,
+          "decode_s": 0.394,
+          "tok_s": 45.69,
+          "rss_mb": 3456.7,
+          "output": "It’s a nice day today. Let's go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 1,
+          "tokens": 11,
+          "total_s": 0.3314,
+          "ttft_s": 0.1322,
+          "decode_s": 0.1992,
+          "tok_s": 50.19,
+          "rss_mb": 3456.9,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 1,
+          "tokens": 32,
+          "total_s": 0.7711,
+          "ttft_s": 0.1381,
+          "decode_s": 0.633,
+          "tok_s": 48.975,
+          "rss_mb": 3456.5,
+          "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 1,
+          "tokens": 27,
+          "total_s": 0.6672,
+          "ttft_s": 0.1376,
+          "decode_s": 0.5296,
+          "tok_s": 49.089,
+          "rss_mb": 3456.4,
+          "output": "Veuillez garantir que tous les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 1,
+          "tokens": 11,
+          "total_s": 0.3156,
+          "ttft_s": 0.1344,
+          "decode_s": 0.1812,
+          "tok_s": 55.181,
+          "rss_mb": 3456.7,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        },
+        {
+          "prompt_id": 0,
+          "repeat": 2,
+          "tokens": 19,
+          "total_s": 0.4935,
+          "ttft_s": 0.1386,
+          "decode_s": 0.3549,
+          "tok_s": 50.722,
+          "rss_mb": 3456.3,
+          "output": "It’s a nice day today. Let's go for a walk in the park together."
+        },
+        {
+          "prompt_id": 1,
+          "repeat": 2,
+          "tokens": 11,
+          "total_s": 0.3414,
+          "ttft_s": 0.1401,
+          "decode_s": 0.2013,
+          "tok_s": 49.671,
+          "rss_mb": 3456.6,
+          "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+        },
+        {
+          "prompt_id": 2,
+          "repeat": 2,
+          "tokens": 32,
+          "total_s": 0.7708,
+          "ttft_s": 0.1227,
+          "decode_s": 0.648,
+          "tok_s": 47.837,
+          "rss_mb": 3456.3,
+          "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+        },
+        {
+          "prompt_id": 3,
+          "repeat": 2,
+          "tokens": 27,
+          "total_s": 0.6661,
+          "ttft_s": 0.1258,
+          "decode_s": 0.5403,
+          "tok_s": 48.125,
+          "rss_mb": 3456.6,
+          "output": "Veuillez garantir que tous les données restent sur cette machine et ne quittent jamais la réseau local."
+        },
+        {
+          "prompt_id": 4,
+          "repeat": 2,
+          "tokens": 11,
+          "total_s": 0.317,
+          "ttft_s": 0.1227,
+          "decode_s": 0.1943,
+          "tok_s": 51.471,
+          "rss_mb": 3456.2,
+          "output": "Artificial intelligence technology is profoundly changing the way we live."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "fastest": "CPU",
+    "lowest_ttft": "CPU"
+  }
+}

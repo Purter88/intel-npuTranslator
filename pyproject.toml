@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "npu-translator"
+version = "0.1.0"
+description = "完全离线的本地多语言翻译程序，主推理设备为 Intel NPU (AI Boost)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "openvino==2026.3.1",
+    "openvino-genai==2026.3.1.0",
+    "openvino-tokenizers==2026.3.1.0",
+    "typer",
+    "modelscope",
+    "psutil",
+]
+
+[project.optional-dependencies]
+# M3 的公开 /v1/* 用
+server = ["fastapi", "uvicorn[standard]"]
+# nputweb（WebUI）：与主依赖解耦，装不到也不影响 nputr
+# cryptography 是自签证书的**唯一**来源：Windows 没有自带 openssl 命令，
+# 见「WebUI（nputweb）」
+web = ["fastapi", "uvicorn[standard]", "cryptography"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "httpx"]
+
+[project.scripts]
+# 短名优先（管道友好，见「CLI 管道契约」），保留长名兼容
+nputr = "npu_translator.cli:main_entry"
+npu-translate = "npu_translator.cli:main_entry"
+# WebUI：独立命令，与 nputr 并列（WebUI（nputweb））
+nputweb = "npu_translator.web.cli:main_entry"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+npu_translator = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<!--
+  nputweb 前端（原生三件套，无框架 / 无构建 / **零外链零 CDN**）。
+
+  零外链是死规定（第 11 条安全措施）：
+  - 离线可用（本项目的立命之本是「数据不出本机」）
+  - 无供应链风险（不存在 CDN 被投毒的可能）
+  - CSP `default-src 'self'` 才能真正锁死，而不是为了拉第三方资源留后门
+
+  token 处理：URL 里的 ?token= 只在页面加载这一次读，
+  读走后立刻 history.replaceState 抹掉，之后一律走 Authorization header。
+  不存 localStorage（跨标签页、跨重启可见），用 sessionStorage（关标签即失效）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>nputweb · 本地翻译</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">nputweb</span>
+    <span class="tagline">本地离线翻译</span>
+  </div>
+  <!--
+    语种选择是一个 combobox：input 既回显当前语言又负责打字过滤，
+    候选由 ul#*-listbox 承载（app.js 动态填 li[role=option]）。
+    底下的 <select> 只是**值存储**，用 hidden 藏起来不渲染 ——
+    runTranslate() / downloadOutput() 都直接读它的 .value，留着就不必动下游逻辑。
+
+    无障碍属性（combobox / expanded / controls / autocomplete）全部写在标签里，
+    不靠 JS 运行时补 —— 验收是只读文本断言，且 controls 要指向真实存在的元素 id。
+  -->
+  <div class="langbar">
+    <div class="combo">
+      <span class="combo-label" id="src-combo-label">源语言</span>
+      <div class="combo-field">
+        <input id="src-search" class="combo-input" type="text" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="src-listbox"
+               aria-autocomplete="list" aria-haspopup="listbox" aria-labelledby="src-combo-label"
+               placeholder="搜索代码 / 中文名 / 英文名">
+        <span class="combo-caret" aria-hidden="true">▾</span>
+        <ul id="src-listbox" class="combo-list" role="listbox" aria-label="源语言候选" hidden></ul>
+      </div>
+      <select id="src-lang" hidden aria-label="源语言"></select>
+    </div>
+    <button id="swap" class="icon-btn" title="交换方向（Ctrl+I）" aria-label="交换方向">⇄</button>
+    <div class="combo">
+      <span class="combo-label" id="tgt-combo-label">目标语言</span>
+      <div class="combo-field">
+        <input id="tgt-search" class="combo-input" type="text" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="tgt-listbox"
+               aria-autocomplete="list" aria-haspopup="listbox" aria-labelledby="tgt-combo-label"
+               placeholder="搜索代码 / 中文名 / 英文名">
+        <span class="combo-caret" aria-hidden="true">▾</span>
+        <ul id="tgt-listbox" class="combo-list" role="listbox" aria-label="目标语言候选" hidden></ul>
+      </div>
+      <select id="tgt-lang" hidden aria-label="目标语言"></select>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="device-badge" class="badge" title="当前推理设备">—</span>
+    <label class="mode">
+      <span>换行</span>
+      <select id="newline" aria-label="换行策略">
+        <option value="soft" title="换行不丢失，但不强制在此断句">soft</option>
+        <option value="hard" title="每行独立翻译，行数 1:1 对齐（日志/列表/CSV）">hard</option>
+        <option value="auto" title="启发式判断硬边界，可能判断错">auto</option>
+      </select>
+    </label>
+  </div>
+</header>
+
+<main class="panes">
+  <section class="pane">
+    <div class="pane-head">
+      <h2>原文</h2>
+      <div class="pane-actions">
+        <span id="char-count" class="counter">0</span>
+        <button id="clear" class="text-btn" title="清空">清空</button>
+      </div>
+    </div>
+    <textarea id="input" spellcheck="false"
+              placeholder="在此输入要翻译的内容…（Ctrl+Enter 翻译）"></textarea>
+  </section>
+
+  <section class="pane">
+    <div class="pane-head">
+      <h2>译文</h2>
+      <div class="pane-actions">
+        <button id="copy" class="text-btn" title="复制到剪贴板">复制</button>
+        <button id="download" class="text-btn" title="下载为 .txt（浏览器端生成）">下载 .txt</button>
+      </div>
+    </div>
+    <textarea id="output" readonly spellcheck="false" placeholder="译文将出现在这里…"></textarea>
+  </section>
+</main>
+
+<footer class="statusbar">
+  <div class="status-left">
+    <button id="translate" class="primary">翻译</button>
+    <span class="hint">Ctrl+Enter</span>
+  </div>
+  <div class="status-right">
+    <div id="progress" class="progress" hidden>
+      <div class="progress-bar"><div id="progress-fill"></div></div>
+    </div>
+    <span id="status" class="status">就绪</span>
+  </div>
+</footer>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

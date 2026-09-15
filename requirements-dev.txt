@@ -1,0 +1,14 @@
+# 开发依赖（测试 / 格式化 / 类型检查）
+# 安装：pip install -r requirements-dev.txt
+-r requirements.txt
+
+pytest>=8.0
+pytest-cov
+
+# WebUI 层的单测要用 FastAPI 的 TestClient，它依赖 httpx。
+# 运行时不需要（nputweb 只用 fastapi / uvicorn / cryptography）。
+httpx
+
+# 可选：代码风格与类型检查
+ruff
+mypy

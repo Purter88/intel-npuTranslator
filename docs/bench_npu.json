@@ -1,0 +1,67 @@
+[
+  {
+    "device": "NPU",
+    "model": "models/HY-MT1.5-1.8B-int4-ov-npu",
+    "load_s": 29.82,
+    "config": {
+      "MAX_PROMPT_LEN": 1024,
+      "MIN_RESPONSE_LEN": 512,
+      "NPUW_CACHE_DIR": ".npucache",
+      "GENERATE_HINT": "BEST_PERF"
+    },
+    "avg_tok_s": 30.29,
+    "avg_ttft_s": 1.253,
+    "results": [
+      {
+        "id": 1,
+        "tokens": 19,
+        "total_s": 1.843,
+        "ttft_s": 1.249,
+        "decode_s": 0.594,
+        "tok_s": 30.29,
+        "peak_py_mem_mb": 0.0,
+        "output": "It’s a nice day today. Let's go for a walk in the park together."
+      },
+      {
+        "id": 2,
+        "tokens": 11,
+        "total_s": 1.569,
+        "ttft_s": 1.251,
+        "decode_s": 0.318,
+        "tok_s": 31.44,
+        "peak_py_mem_mb": 0.0,
+        "output": "人工智能的快速发展已经给我们的生活方方面面带来了巨大的变化。"
+      },
+      {
+        "id": 3,
+        "tokens": 32,
+        "total_s": 2.303,
+        "ttft_s": 1.251,
+        "decode_s": 1.052,
+        "tok_s": 29.47,
+        "peak_py_mem_mb": 0.0,
+        "output": "このプロジェクトの目標は、完全にオフラインのローカル翻訳ソフトウェアを作ることです。"
+      },
+      {
+        "id": 4,
+        "tokens": 27,
+        "total_s": 2.151,
+        "ttft_s": 1.255,
+        "decode_s": 0.896,
+        "tok_s": 29.01,
+        "peak_py_mem_mb": 0.0,
+        "output": "Veuillez garantir que toutes les données restent sur cette machine et ne quittent jamais la réseau local."
+      },
+      {
+        "id": 5,
+        "tokens": 11,
+        "total_s": 1.578,
+        "ttft_s": 1.258,
+        "decode_s": 0.32,
+        "tok_s": 31.24,
+        "peak_py_mem_mb": 0.0,
+        "output": "Artificial intelligence technology is profoundly changing the way we live."
+      }
+    ]
+  }
+]
