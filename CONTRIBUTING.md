@@ -215,7 +215,7 @@ CI 在 `.github/workflows/ci.yml`。它的核心取舍：**不装 OpenVINO**。
 - `requirements.txt` 含 `openvino`（数百 MB），每轮 matrix 都装会非常慢。
 - 而**全量单测一个都不需要它** —— 惰性导入（见 3.1）保证 `import npu_translator` 不拉起 OpenVINO 运行时。
 - 实测：只装 `pytest` / `typer` / `click` / `fastapi` / `httpx` / `cryptography`，
-  406 项里 **405 通过、1 项 skip**。
+  **406 项全部通过**（实测，无 skip）。
 
 所以 CI 装的是一份**手写的"最小测试依赖"**，既不装 `requirements.txt`，也不 `pip install -e .`
 （后者会把 `pyproject.toml` 里的 openvino 一并拉下来）。
