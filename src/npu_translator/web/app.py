@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from ..orchestrate import Translator
-from .auth import HostPolicy, TokenChecker
+from .auth import HostPolicy, TokenChecker, strip_port
 from .limits import QueueGate, RateLimiter
 
 __all__ = ["SecurityConfig", "ServerContext", "create_app"]
@@ -241,6 +241,20 @@ async def send_json(send: Callable[[dict], Awaitable[None]], status: int, payloa
     await send({"type": "http.response.body", "body": body})
 
 
+def _bad_host_message(host_header: str, policy: HostPolicy, debug: bool) -> str:
+    """拼 `bad_host` 的 message。**只改措辞，不改放行与否。**
+
+    复述被拒的那个 host 是安全的：那是请求方自己刚发过来的字符串，告诉他等于照抄。
+
+    **不**在非 debug 下回显允许清单：那会把本机全部 IP 与主机名交给一个连错的
+    陌生人，而「先把名单套出来」正是 rebinding 攻击的第一步。
+    """
+    got = strip_port(host_header).strip() or "（空）"
+    tail = (f"；当前允许：{', '.join(sorted(policy.allowed))}" if debug
+            else "；要用这个名字访问，请在启动命令里加 --allow-host <这个名字>")
+    return f"Host 头不在白名单内（DNS rebinding 防护）：{got}{tail}"
+
+
 # ---------------------------------------------------------------- 中间件
 class SecurityHeadersMiddleware:
     """第 5 条安全措施：CSP / XFO / nosniff / Referrer-Policy /（HTTPS 时）HSTS。"""
@@ -323,6 +337,13 @@ class SecurityMiddleware:
     所以 health 依然是需要 token 的端点，不构成未鉴权的探测面。
     队列也一样要看：health 只是读状态，让它占队列位置会把排队的翻译请求挤成 503。
 
+    ## `bad_host` 的 400 为什么要把被拒的那个 host 复述回去
+
+    见 `_bad_host_message`。这条错的难查程度跟它的危害完全不成比例：用户看到的是
+    「服务不可达 / 连不上」，第一反应永远是端口和防火墙，没人会想到 Host 头。
+    把那个值复述回去 + 给出 `--allow-host`，排查就从「翻源码」变成「照着提示做」。
+    **放行与否一个字没变**，变的只是报错能不能被读懂。
+
     ## M3 参数化：前缀与豁免
 
     - `sec.api_prefix`：前缀**外**的路径直接放行（nputweb 的静态资源继续免检）。
@@ -366,7 +387,7 @@ class SecurityMiddleware:
         host = _header_value(scope, b"host")
         if not self.ctx.host_policy.allows(host):
             await send_json(send, 400, error_payload(
-                "bad_host", "Host 头不在白名单内（DNS rebinding 防护）"))
+                "bad_host", _bad_host_message(host, self.ctx.host_policy, sec.debug)))
             return
 
         # ---- 2. 限流（429）

@@ -24,6 +24,15 @@
 - D6 / D7 / D11 的绑定判定与退出码 → `web.cli.resolve_binding` / `check_port_free`
 - **编排** → `orchestrate.Translator`（本文件不写第二份，见 `service.py` 的 docstring）
 
+## `--allow-host`
+
+与 `nputweb` 同义同字段（两个 Options 是同名同义的两个 dataclass，见下面的 ignore 注释）。
+**默认是空的**：没显式声明的名字一律不放行，与「输错 IP」结果一致 ——
+本机主机名 / FQDN / `.local` 一个都不自动推导。理由见 `web.auth.HostPolicy` 的 docstring。
+
+注意本文件的 `api_prefix="/"`：全站受检，**没有** nputweb 那种静态资源免检通道，
+所以连 `/v1/health` 与 `/v1/openapi.json` 都要过 Host 白名单 —— 这里配错的影响面更大。
+
 ## 本文件是**唯一**允许在模块级 import fastapi 的新文件
 
 `import npu_translator` 不得拉起 OpenVINO；`import npu_translator.web` 不得拉起 fastapi。
@@ -37,7 +46,7 @@ import os
 import sys
 import threading
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import typer
 from fastapi import APIRouter, Request
@@ -57,7 +66,7 @@ from .service import (
 )
 from .web import DEFAULT_HOST, DEFAULT_MAX_INPUT_CHARS, DEFAULT_QUEUE_SIZE, DEFAULT_RATE_PER_MIN, DEFAULT_TIMEOUT_S
 from .web.app import SecurityConfig, SecurityMiddleware, ServerContext, create_app
-from .web.auth import HostPolicy, TokenChecker, is_loopback
+from .web.auth import HostPolicy, TokenChecker, is_loopback, parse_hosts
 from .web.cli import (
     EXIT_INTERRUPTED,
     EXIT_OK,
@@ -289,6 +298,9 @@ class Options:
 
     host: str = DEFAULT_HOST
     port: int = DEFAULT_SERVE_PORT
+    # 额外放行的 Host 名字（`--allow-host`，可重复给）。默认空 = 不放行。
+    # 语义与 nputweb 的同名字段一致；理由见 `web.auth.HostPolicy` 的 docstring。
+    allow_hosts: tuple[str, ...] = ()
     tls: str = "auto"
     cert: Optional[str] = None
     key: Optional[str] = None
@@ -346,6 +358,7 @@ def options_from_env() -> Options:
     return Options(
         host=_env_str("NPT_SERVE_HOST", DEFAULT_HOST),
         port=_int("NPT_SERVE_PORT", DEFAULT_SERVE_PORT),
+        allow_hosts=parse_hosts(os.getenv("NPT_SERVE_ALLOWED_HOSTS")),
         tls=_env_str("NPT_SERVE_TLS", "auto"),
         cert=os.getenv("NPT_SERVE_CERT") or None,
         key=os.getenv("NPT_SERVE_KEY") or None,
@@ -372,7 +385,9 @@ def build_runtime(opts: Options) -> tuple[ServerContext, ServiceRuntime, TokenCh
     **不要在这里重写一遍**（重写必漂移）。
     """
     try:
-        tls_plan = resolve_tls(opts.tls, opts.cert, opts.key, bind_host=opts.host)
+        # extra_hosts 与 HostPolicy 用同一份（不同步会把白名单的 400 换成证书名不匹配）
+        tls_plan = resolve_tls(opts.tls, opts.cert, opts.key,
+                               bind_host=opts.host, extra_hosts=opts.allow_hosts)
     except TlsError as exc:
         typer.secho(f"参数错误: {exc}", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=EXIT_USAGE) from exc
@@ -409,7 +424,7 @@ def build_runtime(opts: Options) -> tuple[ServerContext, ServiceRuntime, TokenCh
     ctx = ServerContext(
         translator=translator,
         token=checker,
-        host_policy=HostPolicy.build(opts.host),
+        host_policy=HostPolicy.build(opts.host, extra=opts.allow_hosts),
         limiter=RateLimiter(per_minute=opts.rate),
         gate=QueueGate(max_pending=opts.queue_size),
         security=security,
@@ -431,7 +446,8 @@ def build_runtime(opts: Options) -> tuple[ServerContext, ServiceRuntime, TokenCh
 
 
 def print_banner(port: int, scheme: str, checker: TokenChecker, devices: list[str],
-                 fingerprint: str, display_host: str, cfg_limits: dict) -> None:
+                 fingerprint: str, display_host: str, cfg_limits: dict,
+                 allow_hosts: tuple[str, ...] = ()) -> None:
     """启动横幅：**必须**告诉用户「在哪个端口上 / token 是什么 / 设备是谁」。"""
     Green, Yellow, Dim = typer.colors.GREEN, typer.colors.YELLOW, typer.colors.BRIGHT_BLACK
     typer.secho("")
@@ -456,6 +472,9 @@ def print_banner(port: int, scheme: str, checker: TokenChecker, devices: list[st
                 "GET /v1/languages · GET /v1/health")
     typer.secho(f"  文档：    {scheme}://127.0.0.1:{port}/v1/openapi.json"
                 f"（/docs 需 --debug）", fg=Dim)
+    if allow_hosts:
+        typer.secho(f"  放行 Host：{', '.join(allow_hosts)}"
+                    "（此外只认 localhost 与本机 IP）", fg=Dim)
     typer.secho(f"  限制：    输入 {cfg_limits['max_input_chars']} 字符 · "
                 f"流式 {cfg_limits['max_stream_chars']} 字符 · "
                 f"超时 {cfg_limits['timeout_s']:.0f}s · 队列 {cfg_limits['queue_size']} · "
@@ -565,6 +584,10 @@ def main(
     allow_no_auth: bool = typer.Option(
         False, "--allow-no-auth",
         help="逃生舱：非回环下允许 --no-auth，并放行明文与弱 token（测试 / 可信局域网）"),
+    allow_host: Optional[List[str]] = typer.Option(
+        None, "--allow-host",
+        help="额外放行的 Host 名（可重复给；也可设 NPT_SERVE_ALLOWED_HOSTS，逗号分隔）。"
+             "不声明就不放行，与输错地址一样直接拒"),
     device: Optional[str] = typer.Option(None, "--device", "-d", help="npu | cpu | gpu | auto | hetero"),
     newline: Optional[str] = typer.Option(None, "--newline", help="soft | hard | auto（语义同 nputr）"),
     max_input_chars: Optional[int] = typer.Option(None, "--max-input-chars", help="单次输入字符上限"),
@@ -600,6 +623,9 @@ def main(
         max_streams=max_streams, lane_wait=lane_wait,
         max_stream_chars=max_stream_chars,
     )
+    # 列表型：命令行显式给了就用命令行的；空 / None 都算「没给」，保留 env 的值
+    if allow_host:
+        opts.allow_hosts = tuple(allow_host)
     # bool 型：命令行开关只能"加"，env 只能"减"。用 or 合并，False 不会覆盖 env 的 True
     opts.no_auth = opts.no_auth or no_auth
     opts.allow_insecure = opts.allow_insecure or allow_insecure
@@ -642,7 +668,7 @@ def start_server(opts: Options) -> int:
                   "max_stream_chars": opts.max_stream_chars,
                   "timeout_s": opts.timeout,
                   "queue_size": opts.queue_size,
-                  "rate_per_min": opts.rate})
+                  "rate_per_min": opts.rate}, opts.allow_hosts)
 
     if scheme == "http" and not is_loopback(opts.host):
         typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：局域网内任何人都能用你的 NPU",

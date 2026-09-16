@@ -28,6 +28,13 @@
 - 全解是用户**显式选的**（就是要最省事的那一档），所以横幅与 stderr 都必须红字写清
   当前是什么姿态：宁可啰嗦，也不能让人在不知情的状态下开着无鉴权的服务。
 
+## `--allow-host`：给「按域名访问」留的唯一口子
+
+本机可以被叫成千上万种名字（短名 / FQDN / `xxx.local` / `hosts` 里的别名），
+**一个都不自动推导** —— 推导等于把「谁被允许」交给当时的 DNS 配置
+（含 DHCP 下发的搜索后缀）。要按某个名字访问，就显式声明它；
+不声明的结果与「输错 IP」完全一致：直接拒，不给任何提示以外的东西。
+
 ## 退出路径为什么和 CLI 相反
 
 CLI 是「译文打完立刻 `os._exit`」（关停阶段会卡在 OpenVINO 的 daemon 线程上，见踩坑记录）。
@@ -43,7 +50,7 @@ import sys
 import threading
 import webbrowser
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 import typer
 
@@ -52,7 +59,7 @@ from .. import config as cfg
 from ..orchestrate import OrchestrateConfig, Translator
 from ..pool import cpu_pipeline_props
 from . import DEFAULT_HOST, DEFAULT_MAX_INPUT_CHARS, DEFAULT_PORT, DEFAULT_QUEUE_SIZE, DEFAULT_RATE_PER_MIN, DEFAULT_TIMEOUT_S
-from .auth import HostPolicy, TokenChecker, generate_token, is_loopback
+from .auth import HostPolicy, TokenChecker, generate_token, is_loopback, parse_hosts
 from .limits import QueueGate, RateLimiter
 from .tls import TlsError, resolve_tls
 
@@ -76,6 +83,10 @@ app = typer.Typer(
 class Options:
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
+    # 额外放行的 Host 名字（`--allow-host`，可重复给）。
+    # 默认空 —— 没声明就是**不放行**，结果与「输错 IP」完全一致。
+    # 刻意**不**自动推导本机主机名 / FQDN / `.local`：理由见 `HostPolicy` 的 docstring。
+    allow_hosts: tuple[str, ...] = ()
     tls: str = "auto"
     cert: Optional[str] = None
     key: Optional[str] = None
@@ -118,6 +129,7 @@ def options_from_env() -> Options:
     return Options(
         host=_env_str("NPT_WEB_HOST", DEFAULT_HOST),
         port=_int("NPT_WEB_PORT", DEFAULT_PORT),
+        allow_hosts=parse_hosts(os.getenv("NPT_WEB_ALLOWED_HOSTS")),
         tls=_env_str("NPT_WEB_TLS", "auto"),
         cert=os.getenv("NPT_WEB_CERT") or None,
         key=os.getenv("NPT_WEB_KEY") or None,
@@ -288,7 +300,11 @@ def build_context(opts: Options) -> tuple[object, TokenChecker, list[str], objec
     from .app import SecurityConfig, ServerContext
 
     try:
-        tls_plan = resolve_tls(opts.tls, opts.cert, opts.key, bind_host=opts.host)
+        # ★ extra_hosts 必须和 HostPolicy 用同一份：只补白名单不补 SAN 的话，
+        #   请求会先过白名单再撞浏览器那个「证书名字不匹配」——把一道
+        #   看不懂的错换成另一道看不懂的错。
+        tls_plan = resolve_tls(opts.tls, opts.cert, opts.key,
+                               bind_host=opts.host, extra_hosts=opts.allow_hosts)
     except TlsError as exc:
         typer.secho(f"参数错误: {exc}", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=EXIT_USAGE) from exc
@@ -309,7 +325,7 @@ def build_context(opts: Options) -> tuple[object, TokenChecker, list[str], objec
     ctx = ServerContext(
         translator=translator,
         token=checker,
-        host_policy=HostPolicy.build(opts.host),
+        host_policy=HostPolicy.build(opts.host, extra=opts.allow_hosts),
         limiter=RateLimiter(per_minute=opts.rate),
         gate=QueueGate(max_pending=opts.queue_size),
         security=SecurityConfig(
@@ -360,6 +376,9 @@ def print_banner(opts: Options, display_host: str, port: int, scheme: str,
         device_line = f"  设备：    {chain}"
     typer.secho(f"{device_line}  引擎：加载中（/api/health 会显示 loading → ready）")
     typer.secho("  日志：    只记录请求长度与耗时，**不记录原文**", fg=TyperColors.BRIGHT_BLACK)
+    if opts.allow_hosts:
+        typer.secho(f"  放行 Host：{', '.join(opts.allow_hosts)}"
+                    "（此外只认 localhost 与本机 IP）", fg=TyperColors.BRIGHT_BLACK)
     typer.secho("")
 
 
@@ -457,6 +476,10 @@ def main(
     allow_no_auth: bool = typer.Option(
         False, "--allow-no-auth",
         help="逃生舱：非回环下允许 --no-auth，并放行明文与弱 token（测试 / 可信局域网）"),
+    allow_host: Optional[List[str]] = typer.Option(
+        None, "--allow-host",
+        help="额外放行的 Host 名（可重复给；也可设 NPT_WEB_ALLOWED_HOSTS，逗号分隔）。"
+             "不声明就不放行，与输错地址一样直接拒"),
     no_open: bool = typer.Option(False, "--no-open", help="不自动打开浏览器"),
     device: Optional[str] = typer.Option(None, "--device", "-d", help="npu | cpu | gpu | auto | hetero"),
     newline: Optional[str] = typer.Option(None, "--newline", help="soft | hard | auto（语义同 nputr）"),
@@ -486,6 +509,9 @@ def main(
         device=device, newline=newline, max_input_chars=max_input_chars,
         timeout=timeout, queue_size=queue_size, rate=rate,
     )
+    # 列表型：命令行显式给了就用命令行的；空 / None 都算「没给」，保留 env 的值
+    if allow_host:
+        opts.allow_hosts = tuple(allow_host)
     # bool 型：命令行开关只能"加"，env 只能"减"。用 or 合并，`False` 不会覆盖 env 的 True
     opts.no_auth = opts.no_auth or no_auth
     opts.allow_insecure = opts.allow_insecure or allow_insecure

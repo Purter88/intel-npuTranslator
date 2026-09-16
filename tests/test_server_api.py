@@ -743,3 +743,52 @@ def test_build_runtime_still_refuses_no_auth_without_escape_hatch(capsys):
         srv.build_runtime(opts)
     assert excinfo.value.exit_code == 2
     assert "allow-no-auth" in capsys.readouterr().err
+
+# ================================================================ --allow-host
+def test_serve_default_allow_hosts_is_empty():
+    """★ serve 侧同理：不给 `--allow-host` 就一个都不额外放行。"""
+    from npu_translator.server import Options
+
+    assert Options().allow_hosts == ()
+
+
+def test_serve_allow_hosts_from_env(monkeypatch):
+    from npu_translator.server import options_from_env
+
+    monkeypatch.setenv("NPT_SERVE_ALLOWED_HOSTS", "npu.example.com")
+    opts = options_from_env()
+    assert opts.allow_hosts == ("npu.example.com",)
+
+
+def test_serve_allow_host_flows_into_policy_and_san(monkeypatch):
+    """serve 的 `api_prefix="/"` 是全站受检 —— 这里漏接的话连 `/v1/health` 都 400。"""
+    from types import SimpleNamespace
+
+    from npu_translator import server as srv
+
+    captured: dict = {}
+
+    def fake_resolve_tls(mode, cert=None, key=None, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(certfile="", keyfile="", fingerprint="", enabled=False)
+
+    monkeypatch.setattr(srv, "resolve_tls", fake_resolve_tls)
+    opts = srv.Options(host="127.0.0.1", tls="off", no_auth=True,
+                       allow_hosts=("npu.example.com",))
+    ctx, _runtime, _checker, _devices, _plan = srv.build_runtime(opts)
+    assert captured["extra_hosts"] == ("npu.example.com",), "extra_hosts 没传到 resolve_tls"
+    assert ctx.host_policy.allows("npu.example.com:8766")
+
+
+def test_serve_rejects_hostname_without_allow_host():
+    """主机名的默认待遇必须和「输错 IP」一模一样：直接拒，同一个 code。"""
+    from npu_translator import server as srv
+
+    opts = srv.Options(host="127.0.0.1", tls="off", no_auth=True)
+    ctx, runtime, _checker, _devices, _plan = srv.build_runtime(opts)
+    c = client(ctx, runtime)
+    by_name = c.get("/v1/health", headers={"Host": "some-machine"})
+    by_wrong_ip = c.get("/v1/health", headers={"Host": "8.8.8.8"})
+    assert by_name.status_code == 400 == by_wrong_ip.status_code
+    assert by_name.json()["error"]["code"] == by_wrong_ip.json()["error"]["code"] == "bad_host"
+    assert "some-machine" in by_name.json()["error"]["message"]

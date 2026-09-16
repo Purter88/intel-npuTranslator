@@ -51,7 +51,9 @@ __all__ = [
     "is_loopback",
     "is_weak_token",
     "local_ip_candidates",
+    "parse_hosts",
     "safe_token_equal",
+    "strip_port",
 ]
 
 # 每次猜中的先验概率 enough：32 字节 ≈ 256 bit，URL-safe base64 后 43 字符
@@ -244,6 +246,24 @@ class HostPolicy:
 
     DNS rebinding 的唯一实用防线：浏览器会按 DNS 解析结果把请求发到本机，
     但 **Host 头仍然是攻击者那个域名** —— 除非他猜到了这里配置的 host。
+
+    ## 为什么**名字**只能显式声明（`--allow-host`）
+
+    同一台机器可以被叫很多名字：短主机名、FQDN、`xxx.local`、`hosts` 文件里的别名、
+    DNS 里的 CNAME。服务端若自动把它们推导进来，就等于把「谁被允许」交给
+    **当时的 DNS 配置**——包括 DHCP 下发的搜索后缀。在不可信的局域网里，
+    那个后缀是谁给的，就等于信任谁。
+
+    所以这里只放行三类东西：
+
+    1. 常量 `localhost` / `127.0.0.1` / `::1` —— 不然自己访问自己都 400
+    2. 显式绑定的那个地址
+    3. `--allow-host` 逐个声明的名字
+
+    ⚠️ **已知的既有偏差**（不是本次改动引入的）：绑通配地址时会把
+    `local_ip_candidates()` 返回的本机 IP **全部**放行，虚拟网卡的也在里面。
+    所以第 2 条实际上比字面条件宽。改成「通配也要求显式声明」会让所有
+    `--host 0.0.0.0` 的用户一启动就 400，属于破坏性变更，暂不做。
     """
 
     allowed: set[str] = field(default_factory=set)
@@ -269,20 +289,47 @@ class HostPolicy:
             allowed.add(host.strip("[]"))
         elif include_lan:
             allowed.update(local_ip_candidates())
-        allowed.update(h.strip().strip("[]").lower() for h in extra if h)
+        allowed.update(_normalize_host(h) for h in extra if h)
         return cls(allowed=allowed)
 
     def allows(self, host_header: str | None) -> bool:
-        """Host 头（可能带端口）是否在白名单里。"""
+        """Host 头（可能带端口）是否在白名单里。
+
+        比对前先归一边（`_normalize_host`）：去掉方括号、统一大小写、剥掉 FQDN 的结尾点，
+        这样 `--allow-host Foo.Example` 能配上浏览器发出的 `foo.example.`。
+        """
         raw = (host_header or "").strip()
         if not raw:
             return False  # HTTP/1.0 且无 Host：这里没有虚拟主机需求，直接不放行
-        host = _strip_port(raw).lower()
-        return host in {a.lower() for a in self.allowed}
+        host = _normalize_host(strip_port(raw))
+        return host in {_normalize_host(a) for a in self.allowed}
 
 
-def _strip_port(host: str) -> str:
-    """去掉端口。IPv6 的 `[::1]:8765` 要留方括号里的地址，`a:b` 不是这种情况别误伤。"""
+def _normalize_host(host: str) -> str:
+    """归一化一个主机名：去掉方括号 → 转小写 → 去掉 FQDN 的结尾点。
+
+    刻意**只**做纯字符串变换 —— 不解析 DNS、不做反查。
+    一旦「白名单放不放行」取决于一次解析的结果，这道防线就变成了
+    「取决于当时 DNS 说什么」，而 DNS 正是 rebinding 攻击里攻击者唯一控制得了的东西。
+    """
+    return host.strip().strip("[]").lower().rstrip(".")
+
+
+def parse_hosts(raw: str | None) -> tuple[str, ...]:
+    """把环境变量里逗号分隔的 host 串切成元组（`a.com,b.com` → `("a.com","b.com")`）。
+
+    放在**这里**而不是两个 CLI 里各写一份：名单的处理归名单模块，
+    `nputweb` 与 `nputserve` 共用同一份切分规则，不会漂移。
+    分隔符只认逗号 —— 主机名里不会出现逗号，含糊的中间状态不值得猜。
+    """
+    return tuple(h.strip() for h in (raw or "").split(",") if h.strip())
+
+
+def strip_port(host: str) -> str:
+    """去掉端口。IPv6 的 `[::1]:8765` 要留方括号里的地址，`a:b` 不是这种情况别误伤。
+
+    对外可见（`web.app` 要在 400 里复述被拒的那个名字），所以不带下划线前缀。
+    """
     if host.startswith("["):
         end = host.find("]")
         if end != -1:

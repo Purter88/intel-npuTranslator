@@ -686,3 +686,68 @@ def test_no_auth_wins_on_loopback_even_with_tls():
 def test_allow_no_auth_env_var(monkeypatch):
     monkeypatch.setenv("NPT_WEB_ALLOW_NO_AUTH", "1")
     assert webcli.options_from_env().allow_no_auth is True
+
+# ---------------------------------------------------------------- --allow-host
+def test_default_allow_hosts_is_empty():
+    """★ 不给 `--allow-host` 就什么都不额外放行 —— 结果与「输错 IP」完全一致。"""
+    assert webcli.Options().allow_hosts == ()
+
+
+def test_allow_host_from_env_reaches_options(monkeypatch):
+    monkeypatch.setenv("NPT_WEB_ALLOWED_HOSTS", "npu.example.com, other.example")
+    opts = webcli.options_from_env()
+    assert opts.allow_hosts == ("npu.example.com", "other.example")
+    assert HostPolicy.build(opts.host, extra=opts.allow_hosts).allows("npu.example.com:8765")
+
+
+def test_allow_host_flows_into_policy_and_san(monkeypatch):
+    """一个开关喂**两**处：`build_context` 必须同时补白名单与证书 SAN。
+
+    只补一处的话，请求会先过了白名单再撞浏览器的「证书名字不匹配」——
+    把一道看不懂的错换成另一道看不懂的错。
+    """
+    from types import SimpleNamespace
+
+    captured: dict = {}
+
+    def fake_resolve_tls(mode, cert=None, key=None, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(certfile="", keyfile="", fingerprint="", enabled=False)
+
+    monkeypatch.setattr(webcli, "resolve_tls", fake_resolve_tls)
+    opts = webcli.Options(host="127.0.0.1", tls="off", no_auth=True,
+                          allow_hosts=("npu.example.com",))
+    ctx, _checker, _devices, _plan = webcli.build_context(opts)
+    assert captured["extra_hosts"] == ("npu.example.com",), "extra_hosts 没传到 resolve_tls"
+    assert ctx.host_policy.allows("npu.example.com:8765")
+    assert not ctx.host_policy.allows("attacker.example.com:8765")
+
+
+def test_banner_lists_allowed_hosts_only_when_given(capsys):
+    """给了就摆到明面上（用户要知道自己开了什么），没给就不该有这一行。"""
+    webcli.print_banner(webcli.Options(allow_hosts=("npu.example.com",)),
+                        "127.0.0.1", 8765, "http", TokenChecker(None), ["NPU"], "")
+    assert "npu.example.com" in capsys.readouterr().out
+    webcli.print_banner(webcli.Options(), "127.0.0.1", 8765, "http",
+                        TokenChecker(None), ["NPU"], "")
+    assert "放行 Host" not in capsys.readouterr().out
+
+
+def test_bad_host_message_echoes_rejected_host_and_hints_flag():
+    ctx = make_ctx()
+    r = client(ctx).get("/api/health", headers={"Host": "evil.example.com"})
+    assert r.status_code == 400
+    msg = r.json()["error"]["message"]
+    assert "evil.example.com" in msg, "不复述那个值，用户永远猜不到是 Host 头的问题"
+    assert "--allow-host" in msg
+
+
+def test_bad_host_message_hides_full_whitelist_unless_debug():
+    """完整名单不给连错的陌生人 —— 否则这道防护反过来成了名单的来源。"""
+    msg = client(make_ctx()).get(
+        "/api/health", headers={"Host": "evil.example.com"}).json()["error"]["message"]
+    assert "testserver" not in msg
+    dbg = make_ctx(security=SecurityConfig(debug=True))
+    dbg_msg = client(dbg).get(
+        "/api/health", headers={"Host": "evil.example.com"}).json()["error"]["message"]
+    assert "testserver" in dbg_msg

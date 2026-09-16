@@ -379,3 +379,51 @@ def test_cert_layout_version_is_baked_into_the_filename():
     assert tlsmod._CERT_LAYOUT in key_name
     # 同一批 SAN 必须派生出同一个文件名，否则「复用」这条保证就没了
     assert tlsmod._cert_names(["localhost"]) == (cert_name, key_name)
+
+# ================================================================ --allow-host（Host 白名单）
+def test_parse_hosts_splits_on_comma_and_drops_empty():
+    """逗号分隔 + 去空白 + 丢空段；没给 / 全是空 = 空元组（= 一个都不额外放行）。"""
+    assert auth.parse_hosts("a.example,b.example") == ("a.example", "b.example")
+    assert auth.parse_hosts(" a.example , , b.example ") == ("a.example", "b.example")
+    assert auth.parse_hosts(None) == ()
+    assert auth.parse_hosts("") == ()
+    assert auth.parse_hosts(" , ") == ()
+
+
+def test_allow_host_puts_name_into_whitelist():
+    """`--allow-host` 的落点：名字**只有**被显式声明才进白名单。"""
+    policy = auth.HostPolicy.build("127.0.0.1", extra=["npu.example.com"])
+    assert policy.allows("npu.example.com:8765")
+    # 大小写与 FQDN 结尾点都要认：浏览器怎么发不由用户控制
+    assert policy.allows("NPU.Example.COM.:8765")
+    # 声明了这一个，不等于放开了这一类
+    assert not policy.allows("other.example.com:8765")
+
+
+def test_machine_short_hostname_is_not_whitelisted_by_default():
+    """★ 回归锁：**不**自动推导本机主机名 —— 这是 `--allow-host` 存在的理由。
+
+    自动推导等于把「谁可以访问」交给当时的 DNS 配置（含 DHCP 下发的搜索后缀）：
+    那个后缀是谁给的，就等于信任谁。
+    """
+    import socket
+
+    hostname = socket.gethostname()
+    if auth.is_loopback(hostname):  # 极端环境：主机名恰好是 localhost
+        pytest.skip("本机主机名是回环名，这条用例没有意义")
+    for bind in ("127.0.0.1", "0.0.0.0"):
+        policy = auth.HostPolicy.build(bind)
+        assert not policy.allows(f"{hostname}:8765"), f"绑 {bind} 时本机短名不该自动放行"
+        assert not policy.allows(f"{hostname}.local:8765")
+
+
+def test_self_signed_cert_covers_extra_hosts(tmp_path):
+    """第二堵墙：只补白名单不补 SAN 的话，名字对了也还是吃浏览器的证书告警。"""
+    from cryptography import x509
+
+    cert, _ = tlsmod.ensure_self_signed(tmp_path, bind_host="127.0.0.1",
+                                        extra_hosts=["npu.example.com"])
+    san = x509.load_pem_x509_certificate(
+        open(cert, "rb").read()).extensions.get_extension_for_class(
+        x509.SubjectAlternativeName).value
+    assert "npu.example.com" in san.get_values_for_type(x509.DNSName)
