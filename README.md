@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | 当前状态 | M0 / M1 / M2 ✅ · **nputweb（Web 界面）✅** · **快速部署 ✅** · **M3 `/v1/*` 服务 ✅**（功耗实测、长文本端到端未做）· M4 ⬜ |
-| 实测吞吐 | NPU **32.4 tok/s** · CPU **46–54 tok/s** · 单测 **406 项**全过 |
+| 实测吞吐 | NPU **32.4 tok/s** · CPU **46–54 tok/s** · 单测 **430 项**全过 |
 | 主要平台 | Windows 11 + Intel Core Ultra（NPU4） |
 | 授权 | **MIT** |
 
@@ -187,6 +187,7 @@ nputweb                                  # 默认 https://127.0.0.1:8765，自�
 nputweb --port 9000                      # 换端口
 nputweb --host 0.0.0.0                   # 允许局域网访问（自动生成 token 并打印）
 nputweb --tls off                        # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
+nputweb --allow-host myhost.example      # 允许按这个名字访问（可重复给；不这样就 400）
 nputweb --host 0.0.0.0 --tls off --no-auth --allow-no-auth   # 测试 / 可信局域网：明文 + 无鉴权
 nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 ```
@@ -210,6 +211,7 @@ nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 | `NPT_WEB_NO_AUTH` | off | 关闭鉴权（仅回环地址允许） |
 | `NPT_WEB_ALLOW_INSECURE` | off | 放行「非回环 + 明文」 |
 | `NPT_WEB_ALLOW_NO_AUTH` | off | 逃生舱：非回环下允许 `--no-auth`，同时放行明文与弱 token |
+| `NPT_WEB_ALLOWED_HOSTS` | 空 | 额外放行的 Host 名（逗号分隔；等价于重复给 `--allow-host`）|
 | `NPT_WEB_OPEN` | on | 设 `0` 不自动开浏览器 |
 | `NPT_WEB_MAX_INPUT_CHARS` | `5000` | 单次输入字符上限（超出 413） |
 | `NPT_WEB_TIMEOUT` | `120` | 单请求超时秒数（超时 504） |
@@ -233,7 +235,12 @@ nputserve --host 0.0.0.0                     # 允许局域网访问（自动生
 nputserve --tls off                          # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
 nputserve --host 0.0.0.0 --tls off --no-auth --allow-no-auth  # 测试 / 可信局域网：明文 + 无鉴权
 nputserve --debug                            # 开 /docs /redoc 与 access log
+nputserve --allow-host myhost.example         # 允许按这个名字访问（不这样就 400）
 ```
+
+> 想按**域名**而不是 IP 访问，用 `--allow-host <名字>` 显式声明它。
+> 本机主机名 / `xxx.local` 这类名字**不**自动放行 —— 那等于把「谁可以访问」
+> 交给当时的 DNS 配置（含 DHCP 下发的搜索后缀）。不声明的待遇和输错 IP 一样：直接拒。
 
 只有四个端点：
 
@@ -269,6 +276,7 @@ curl.exe -k https://127.0.0.1:8766/v1/translate -H "Authorization: Bearer <token
 | `NPT_SERVE_CERT` / `NPT_SERVE_KEY` | — | `--tls on` 时用 |
 | `NPT_SERVE_TOKEN` | 自动生成 | 不指定则随机生成并打印一次 |
 | `NPT_SERVE_NO_AUTH` | off | 关闭鉴权（仅回环地址允许） |
+| `NPT_SERVE_ALLOWED_HOSTS` | 空 | 额外放行的 Host 名（逗号分隔）|
 | `NPT_SERVE_ALLOW_INSECURE` | off | 放行「非回环 + 明文」 |
 | `NPT_SERVE_ALLOW_NO_AUTH` | off | 逃生舱：非回环下允许 `--no-auth`，同时放行明文与弱 token |
 | `NPT_SERVE_DEBUG` | off | 开 `/docs` / `/redoc` 与 access log |
@@ -676,7 +684,7 @@ PowerShell 5.1 的 `>` / `>>` 会产出 **UTF-16LE**。用 `nputr -o out.txt` �
 ## 开发
 
 ```powershell
-pytest tests/ -q                                    # 单元测试 406 项（不含模型，秒级）
+pytest tests/ -q                                    # 单元测试 430 项（不含模型，秒级）
 .\.venv\Scripts\python.exe scripts\smoke_test.py --device NPU   # 冒烟：5 语种 × 3 句
 .\.venv\Scripts\python.exe scripts\bench.py --all               # 三设备基准
 .\.venv\Scripts\python.exe scripts\bench_hetero.py              # 异构并行基准 + 线程扫描

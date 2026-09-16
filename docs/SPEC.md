@@ -649,7 +649,8 @@ GenAI 路径拿不到真 decode 计数（`TranslateEngine.tokens` 本身就是 `
    NPU 是单流设备，多 worker 只会抢全局锁 + OOM。**这是本模块最容易犯的错。**
 2. **只绑 127.0.0.1 不等于安全**：恶意网页的 JS 能直接请求本机端口（DNS rebinding）。
    → ① token 走 `Authorization` header（不用 cookie → 天然免 CSRF，恶意页也读不到 `sessionStorage`）；
-   ② **必须做 Host 头白名单**（只放行 `localhost` / `127.0.0.1` / 显式指定的 host），否则 400。
+   ② **必须做 Host 头白名单**（只放行 `localhost` / `127.0.0.1` / `--allow-host` 显式声明的名字），
+      否则 400。**本机主机名 / FQDN / `.local` 一个都不自动推导** —— 见 9.7。
 3. **uvicorn access log 会记录完整 URL** → URL 里的 `?token=` 会写进日志。
    → 前端 `history.replaceState` 立即抹掉 + 服务端**脱敏 query**（或默认关 access log）。
 4. **日志不记录原文**（翻译内容可能敏感，是「数据不出本机」的延伸），只记长度 / 语向 / 耗时。
@@ -709,6 +710,41 @@ CSP `default-src 'self'` · `X-Frame-Options: DENY` · `X-Content-Type-Options: 
 | W16 | **一条「纯逻辑模拟」用例被判无效并删除** | 它在测试里自己手写「health 不调 `hit()`」的语义，压根没经过中间件 → 去掉豁免照样绿，红灯验证时暴露。**建模出来的绿灯比没有绿灯更危险**：配额类断言必须走 TestClient 打真实栈 |
 | W17 | **组合坏、单件对**：原套件只测了 `RateLimiter` 的纯逻辑（上限 / 滑动 / 按 key 隔离 / 0=不限），单元全对，但没有任何用例验证「health 会吃掉 translate 的配额」 | 这是那个 P0 能溜到用户手里的直接原因 |
 | W18 | 前端**零 node 依赖也能测**：只用只读文本断言（心跳常量、aria 属性必须静态存在、无内联 `style`/`on*`） | 引入 playwright 会让「秒级套件」这个前提破产 |
+
+### 9.7 `--allow-host`：按域名访问的唯一入口（2026-09-17）
+
+**用法**：`--allow-host <名字>`（可重复给），或环境变量 `NPT_WEB_ALLOWED_HOSTS`（逗号分隔）。
+一个开关同时喂**两处** —— Host 白名单与自签证书的 SAN：
+
+| 生效点 | 代码 | 不补会怎样 |
+|---|---|---|
+| Host 白名单 | `HostPolicy.build(bind_host, extra=...)` | 400 `bad_host` |
+| 自签证书 SAN | `resolve_tls(..., extra_hosts=...)` | 浏览器 **证书名字不匹配**（`ERR_CERT_COMMON_NAME_INVALID`） |
+
+只补第一处会把一道看不懂的错换成另一道看不懂的错。**两处必须同步。**
+
+**不给就什么都不放行**（默认是空元组），行为与「输错 IP」完全一致。
+刻意**不**自动推导本机名字，三条理由：
+
+1. **推导不动，也不该推导。** 同一台机器可以被叫短主机名、FQDN、`xxx.local`、`hosts` 里的别名、
+   DNS 里的 CNAME —— 自动只加 `socket.gethostname()` 那一个，用户从别的名字访问照样 400，
+   于是这个 bug 会反复「复现」。
+2. **把控制权交出去。** 自动推导等于把「谁可以访问」交给当时的 DNS 配置，
+   包括 **DHCP 下发的搜索后缀**。在不可信的局域网里，那个后缀是谁给的，就等于信任谁。
+3. **会自动漂移。** 换网络 / 改计算机名 / DNS 后缀变了就失效，而且失效得毫无征兆。
+
+`nputserve` 同理（`NPT_SERVE_ALLOWED_HOSTS`）。它的 `api_prefix="/"` 是全站受检，
+**连 `/v1/health` 与 `/v1/openapi.json` 都要过这一关** —— 这里配错的影响面比 nputweb 更大。
+
+**400 的措辞**（`web.app._bad_host_message`）：复述被拒的那个 Host + 提示 `--allow-host`。
+它是请求方自己刚发过来的字符串，复述不构成泄漏；但**完整白名单只在 `--debug` 下回显** ——
+不把本机全部 IP 与主机名交给一个连错的陌生人。
+
+> **想用正规域名访问的正确做法**：给这台机器一个**你独占**的名字
+> （带 MagicDNS 的私有 overlay 网络、内网 DNS 的 A 记录、或你自己注册的域名），
+> 然后 `--allow-host <那个名字>`。
+> 公网域名 + Let's Encrypt 这条路也跑得通（`--tls on --cert --key` 早已支持），
+> 但那要引入 DNS API token 与 90 天续期，与「完全离线、完全本机」的定位置换不来。
 
 ---
 
@@ -840,7 +876,9 @@ event: error   data: {"code","message","abandoned"}
 - **D7**：非回环 + 明文 → **拒绝启动**（退出码 3），除非再加 `--allow-insecure`
 - **D11**：对**最终生效的** token 无条件校验，与来源无关；弱 token + 非回环 → 拒绝启动（码 2），回环 → 警告放行
 - **逃生舱**：`--allow-no-auth` 把上面三条在**非回环**下的「拒绝启动」一律降级为警告；它**不**等于 `--no-auth` —— 只给逃生舱时 token 照旧强制
-- **Host 白名单**：`localhost` / `127.0.0.1` / 显式指定的 host，否则 400 `bad_host`
+- **Host 白名单**：`localhost` / `127.0.0.1` / `--allow-host` 显式声明的名字，否则 400 `bad_host`。
+  serve 是 `api_prefix="/"`，**全站受检** —— `/v1/health` 与 `/v1/openapi.json` 也过这一关。
+  本机主机名 / FQDN / `.local` **不**自动推导（见 9.7）
 - **token 走 `Authorization: Bearer`**（不用 cookie → 天然免 CSRF）
 - **限流不认 `X-Forwarded-For`**（按真实对端 IP 计，避免伪造头绕过）
 - **access log 默认关**（它会记完整 URL，可能带 token）
