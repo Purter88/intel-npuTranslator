@@ -66,16 +66,28 @@ from .service import (
 )
 from .web import DEFAULT_HOST, DEFAULT_MAX_INPUT_CHARS, DEFAULT_QUEUE_SIZE, DEFAULT_RATE_PER_MIN, DEFAULT_TIMEOUT_S
 from .web.app import SecurityConfig, SecurityMiddleware, ServerContext, create_app
-from .web.auth import HostPolicy, TokenChecker, is_loopback, parse_hosts
+from .web.auth import (
+    HostPolicy,
+    TokenChecker,
+    has_non_loopback,
+    host_list,
+    is_loopback,
+    parse_hosts,
+)
+# `check_port_free` / `resolve_listen_host` 已不再从本模块走：端口检测
+# 与「挑一个地址打印」都被 `bind_listeners` / `resolve_listen_addresses` 取代
+# （前者顺带消掉了 TOCTOU，后者不再只挑一个）。留着 import 就是 F401。
 from .web.cli import (
     EXIT_INTERRUPTED,
     EXIT_OK,
     EXIT_STARTUP,
     EXIT_USAGE,
-    check_port_free,
+    WILDCARDS,
+    bind_listeners,
     resolve_binding,
-    resolve_listen_host,
+    resolve_listen_addresses,
 )
+from .web.cli import _url
 from .web.limits import QueueGate, RateLimiter, TooLarge, check_body_size
 from .web.routes import _is_client_gone, _safe_error_message, max_body_bytes, scrub_paths
 from .web.tls import TlsError, resolve_tls
@@ -296,8 +308,12 @@ def service_security(
 class Options:
     """`nputserve` 的选项。**与 nputweb 同名的字段语义相同**（便于 `resolve_binding` 复用）。"""
 
+    # ---- 绑定地址：`hosts` 是唯一真源，`host` 是「第一个」的兼容别名。
+    # 语义与 nputweb 完全一致（见 `web.cli.Options` 那里的注释）。
     host: str = DEFAULT_HOST
+    hosts: tuple[str, ...] = ()
     port: int = DEFAULT_SERVE_PORT
+    show_all_addresses: bool = False
     # 额外放行的 Host 名字（`--allow-host`，可重复给）。默认空 = 不放行。
     # 语义与 nputweb 的同名字段一致；理由见 `web.auth.HostPolicy` 的 docstring。
     allow_hosts: tuple[str, ...] = ()
@@ -320,6 +336,15 @@ class Options:
     max_streams: int = 1
     lane_wait: float = 10.0
     max_stream_chars: int = DEFAULT_MAX_STREAM_CHARS
+
+    def sync_hosts(self) -> None:
+        """同 `web.cli.Options.sync_hosts`：把 `host` / `hosts` 归一化成一致状态。"""
+        hosts = host_list(self.hosts or (self.host,))
+        self.hosts = hosts or (DEFAULT_HOST,)
+        self.host = self.hosts[0]
+
+    def __post_init__(self) -> None:
+        self.sync_hosts()
 
 
 def _env_str(name: str, default: str) -> str:
@@ -358,6 +383,7 @@ def options_from_env() -> Options:
     return Options(
         host=_env_str("NPT_SERVE_HOST", DEFAULT_HOST),
         port=_int("NPT_SERVE_PORT", DEFAULT_SERVE_PORT),
+        show_all_addresses=_bool("NPT_SERVE_SHOW_ALL_ADDRESSES", False),
         allow_hosts=parse_hosts(os.getenv("NPT_SERVE_ALLOWED_HOSTS")),
         tls=_env_str("NPT_SERVE_TLS", "auto"),
         cert=os.getenv("NPT_SERVE_CERT") or None,
@@ -387,7 +413,7 @@ def build_runtime(opts: Options) -> tuple[ServerContext, ServiceRuntime, TokenCh
     try:
         # extra_hosts 与 HostPolicy 用同一份（不同步会把白名单的 400 换成证书名不匹配）
         tls_plan = resolve_tls(opts.tls, opts.cert, opts.key,
-                               bind_host=opts.host, extra_hosts=opts.allow_hosts)
+                               bind_host=opts.hosts, extra_hosts=opts.allow_hosts)
     except TlsError as exc:
         typer.secho(f"参数错误: {exc}", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=EXIT_USAGE) from exc
@@ -424,7 +450,7 @@ def build_runtime(opts: Options) -> tuple[ServerContext, ServiceRuntime, TokenCh
     ctx = ServerContext(
         translator=translator,
         token=checker,
-        host_policy=HostPolicy.build(opts.host, extra=opts.allow_hosts),
+        host_policy=HostPolicy.build(opts.hosts, extra=opts.allow_hosts),
         limiter=RateLimiter(per_minute=opts.rate),
         gate=QueueGate(max_pending=opts.queue_size),
         security=security,
@@ -446,15 +472,31 @@ def build_runtime(opts: Options) -> tuple[ServerContext, ServiceRuntime, TokenCh
 
 
 def print_banner(port: int, scheme: str, checker: TokenChecker, devices: list[str],
-                 fingerprint: str, display_host: str, cfg_limits: dict,
-                 allow_hosts: tuple[str, ...] = ()) -> None:
-    """启动横幅：**必须**告诉用户「在哪个端口上 / token 是什么 / 设备是谁」。"""
+                 fingerprint: str, display_hosts: object, cfg_limits: dict,
+                 allow_hosts: tuple[str, ...] = (),
+                 show_all: bool = False) -> None:
+    """启动横幅：**必须**告诉用户「在哪个端口上 / token 是什么 / 设备是谁」。
+
+    地址那一段的规则与 nputweb 完全一致（只打印 bind 集合 ∩ 本机地址，
+    虚拟网卡与点对点默认折叠），见 `web.cli.resolve_listen_addresses`。
+    """
     Green, Yellow, Dim = typer.colors.GREEN, typer.colors.YELLOW, typer.colors.BRIGHT_BLACK
+    binds = host_list(display_hosts)
+    if not binds or any(h in WILDCARDS for h in binds):
+        local = "127.0.0.1"
+    else:
+        local = next((h for h in binds if is_loopback(h)), binds[0])
+    shown, folded = resolve_listen_addresses(binds, show_all=show_all)
     typer.secho("")
     typer.secho("nputserve 已就绪（一键停止：Ctrl+C）", fg=Green)
-    typer.secho(f"  本地：    {scheme}://127.0.0.1:{port}/v1/health")
-    if display_host not in {"127.0.0.1", "localhost"}:
-        typer.secho(f"  局域网：  {scheme}://{display_host}:{port}/v1/health")
+    typer.secho(f"  本地：    {_url(scheme, local, port)}v1/health")
+    for index, (ip, note) in enumerate(shown):
+        label = "网络：    " if index == 0 else "          "
+        typer.secho(f"  {label}{_url(scheme, ip, port)}v1/health"
+                    + (f"（{note}）" if note else ""))
+    if folded:
+        typer.secho(f"           （另有 {len(folded)} 个虚拟网卡 / 点对点地址未显示，"
+                    "加 --show-all-addresses 展开）", fg=Dim)
     if checker.enabled:
         typer.secho(f"  鉴权：    Authorization: Bearer {checker.token}", fg=Yellow)
         typer.secho("            （只打印这一次，请现在复制保存）", fg=Dim)
@@ -482,7 +524,9 @@ def print_banner(port: int, scheme: str, checker: TokenChecker, devices: list[st
     typer.secho("")
 
 
-async def _serve(ctx: ServerContext, runtime: ServiceRuntime, opts: Options) -> None:
+async def _serve(ctx: ServerContext, runtime: ServiceRuntime, opts: Options,
+                 listeners: list | None = None) -> None:
+    """同 `web.cli._serve`：`listeners` 是预先绑好的监听 socket（多地址绑定用）。"""
     import uvicorn
 
     sec = ctx.security
@@ -499,10 +543,13 @@ async def _serve(ctx: ServerContext, runtime: ServiceRuntime, opts: Options) -> 
         date_header=False,
     ))
     ctx._server = server  # type: ignore[attr-defined]
-    await server.serve()
+    # 空列表要转 None：uvicorn 见到 `sockets=[]` 会一个 listener 都不建，
+    # 服务照样"启动成功"，只是谁都连不上。
+    await server.serve(sockets=listeners or None)
 
 
-def run_server(ctx: ServerContext, runtime: ServiceRuntime, opts: Options) -> int:
+def run_server(ctx: ServerContext, runtime: ServiceRuntime, opts: Options,
+               listeners: list | None = None) -> int:
     """在**后台线程**里跑 uvicorn，主线程专职等 Ctrl+C。
 
     为什么不直接在主线程 `asyncio.run`：要精确控制「优雅 → 超时 → 硬退」这条链。
@@ -511,7 +558,7 @@ def run_server(ctx: ServerContext, runtime: ServiceRuntime, opts: Options) -> in
     """
     def worker() -> None:
         try:
-            asyncio.run(_serve(ctx, runtime, opts))
+            asyncio.run(_serve(ctx, runtime, opts, listeners))
         except Exception as exc:  # noqa: BLE001 - 启动失败要让用户看见
             typer.secho(f"服务启动失败: {type(exc).__name__}: {exc}", err=True,
                         fg=typer.colors.RED)
@@ -563,7 +610,13 @@ def merge(opts: Options, **cli_values: object) -> Options:
     用 `None` 当"我没给"的信号，绕开整个问题。
     """
     for key, value in cli_values.items():
-        if value is not None:
+        if value is None:
+            continue
+        # ★ 同 `web.cli.merge`：`host` 是别名，命令行给的值要落进 `hosts`，
+        #   否则会被随后的 sync_hosts() 静默吞掉。
+        if key == "host":
+            opts.hosts = host_list(value)
+        else:
             setattr(opts, key, value)
     return opts
 
@@ -571,8 +624,13 @@ def merge(opts: Options, **cli_values: object) -> Options:
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    host: Optional[str] = typer.Option(None, "--host", help="绑定地址（默认 127.0.0.1；非回环会强制 token）"),
+    host: Optional[str] = typer.Option(
+        None, "--host",
+        help="绑定地址，逗号分隔可绑多个（默认 127.0.0.1；0.0.0.0 = 全部网卡；任一个非回环就强制 token）"),
     port: Optional[int] = typer.Option(None, "--port", help=f"端口（默认 {DEFAULT_SERVE_PORT}，与 nputweb 的 8765 错开）"),
+    show_all_addresses: bool = typer.Option(
+        False, "--show-all-addresses",
+        help="横幅展开虚拟网卡与点对点地址（默认折叠，只留一行计数）"),
     tls: Optional[str] = typer.Option(None, "--tls", help="auto=自签（默认）| on=用 --cert/--key | off=明文"),
     cert: Optional[str] = typer.Option(None, "--cert", help="证书路径（--tls on 时必填）"),
     key: Optional[str] = typer.Option(None, "--key", help="私钥路径（--tls on 时必填）"),
@@ -628,6 +686,8 @@ def main(
         opts.allow_hosts = tuple(allow_host)
     # bool 型：命令行开关只能"加"，env 只能"减"。用 or 合并，False 不会覆盖 env 的 True
     opts.no_auth = opts.no_auth or no_auth
+    opts.show_all_addresses = opts.show_all_addresses or show_all_addresses
+    opts.sync_hosts()  # merge() 是 setattr，不触发 __post_init__
     opts.allow_insecure = opts.allow_insecure or allow_insecure
     opts.allow_no_auth = opts.allow_no_auth or allow_no_auth
     opts.debug = opts.debug or debug
@@ -640,21 +700,24 @@ def main(
 
 def start_server(opts: Options) -> int:
     """把服务跑起来并阻塞到退出。返回退出码（测试与外部调用者用得着）。"""
-    # ① 端口先查：默认端口被别的实例占着是最常见的情况，早点说清楚
-    try:
-        check_port_free(opts.host, opts.port)
-    except SystemExit as exc:
-        typer.secho(f"启动失败: {exc}", err=True, fg=typer.colors.RED)
-        return EXIT_STARTUP
+    opts.sync_hosts()  # 外部调用者可能直接构造 Options，这里兜底
 
-    # ② 证书 + 绑定规则的合法性（含 D7 的拒绝启动与 D11 的弱 token）
+    # ① 证书 + 绑定规则（含 D7 的拒绝启动与 D11 的弱 token）
+    #    ★ 放在 bind 之前：D7 那条提示是可执行的，先绑端口会让用户先撞上
+    #      「端口被占用」，排查方向直接指错。
     try:
         built = build_runtime(opts)
     except typer.Exit as exc:
         return exc.exit_code if isinstance(exc.exit_code, int) else EXIT_USAGE
     ctx, runtime, checker, devices, tls_plan = built
 
-    display_host = resolve_listen_host(opts.host)
+    # ② 真正绑定（端口冲突检测也在这一步完成）
+    try:
+        listeners, real_port = bind_listeners(opts.hosts, opts.port)
+    except SystemExit as exc:
+        typer.secho(f"启动失败: {exc}", err=True, fg=typer.colors.RED)
+        return EXIT_STARTUP
+
     scheme = "https" if ctx.https else "http"
 
     # ③ 后台预热：NPU 首次编译约 30 s，不能拖住监听（否则用户以为启动失败）
@@ -662,22 +725,23 @@ def start_server(opts: Options) -> int:
         threading.Thread(target=_warmup, args=(ctx.translator,), daemon=True,
                          name="nputserve-warmup").start()
 
-    print_banner(opts.port, scheme, checker, devices,
-                 getattr(tls_plan, "fingerprint", "") or "", display_host,
+    print_banner(real_port, scheme, checker, devices,
+                 getattr(tls_plan, "fingerprint", "") or "", opts.hosts,
                  {"max_input_chars": opts.max_input_chars,
                   "max_stream_chars": opts.max_stream_chars,
                   "timeout_s": opts.timeout,
                   "queue_size": opts.queue_size,
-                  "rate_per_min": opts.rate}, opts.allow_hosts)
+                  "rate_per_min": opts.rate}, opts.allow_hosts,
+                 show_all=opts.show_all_addresses)
 
-    if scheme == "http" and not is_loopback(opts.host):
-        typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：局域网内任何人都能用你的 NPU",
+    if scheme == "http" and has_non_loopback(opts.hosts):
+        typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：同一网段内任何人都能用你的 NPU",
                     err=True, fg=typer.colors.RED)
-    if not checker.enabled and not is_loopback(opts.host):
+    if not checker.enabled and has_non_loopback(opts.hosts):
         typer.secho("⚠️ 当前是**无鉴权 + 非回环**：同一网段任何人都能直接用你的 NPU，"
                     "连 token 都不用猜", err=True, fg=typer.colors.RED)
 
-    return run_server(ctx, runtime, opts)
+    return run_server(ctx, runtime, opts, listeners)
 
 
 def _cli_main() -> int:

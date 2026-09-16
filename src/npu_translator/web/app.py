@@ -68,6 +68,18 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 # 也是既有单测与注释的引用点；真正生效的是那两个字段。
 _EXEMPT_FROM_LIMITS = frozenset({"/api/health"})
 
+#: 浏览器在**跨站**请求上一律携带的 `Sec-Fetch-Site` 取值。
+#:
+#: 只挡这一个值，是有意的：
+#:
+#: - `same-origin`（页面自己的 XHR）与 `none`（地址栏直达 / 书签 / 邮件里点开）
+#:   是正常用法，必须放行 —— 挡了等于把自己关在门外。
+#: - `same-site` 不去碰：按 Fetch 规范，对 IP 地址与不可注册域名的主机，
+#:   "same site" 要求 host **完全相等**，所以它并不比 `same-origin` 宽。
+#: - `cross-site` 才是 rebinding 的指纹：页面在攻击者的域名下，
+#:   却让浏览器把请求发到本机。浏览器一定会带上，伪造不了。
+_CROSS_SITE_VALUES = frozenset({"cross-site"})
+
 StatusCode = int
 Headers = list[tuple[bytes, bytes]]
 
@@ -126,6 +138,10 @@ class SecurityConfig:
     # 「`None` 当关闭」表达的，openapi 却需要一个「给了路径、但要不要 gate」的独立开关；
     # 少它就只能在「nputweb 的 --debug 失效」和「nputserve 默认关掉契约文件」之间二选一。
     openapi_requires_debug: bool = True
+    # 浏览器跨站请求（`Sec-Fetch-Site: cross-site`）是否直接拒。
+    # 默认开：这是 DNS rebinding 在 HTTP 层唯一**无法伪造**的指纹 ——
+    # Host 头可以任意编，这个头由浏览器强制写、JS 改不了。
+    block_cross_site: bool = True
 
 
 @dataclass
@@ -241,6 +257,19 @@ async def send_json(send: Callable[[dict], Awaitable[None]], status: int, payloa
     await send({"type": "http.response.body", "body": body})
 
 
+def _cross_site_message() -> str:
+    """`Sec-Fetch-Site: cross-site` 的 403 文案。
+
+    这条错几乎只会在**真被 rebinding** 或「从别的站点的链接点进来」时出现，
+    两种情况用户都看不懂，所以文案要直接说清发生了什么、该怎么绕。
+    """
+    return (
+        "请求来自另一个站点（Sec-Fetch-Site: cross-site），已拒绝。"
+        "页面所在的域名与本站不同，这是 DNS rebinding 的典型特征。"
+        "请在地址栏直接打开本服务的地址；程序化调用（curl / 脚本）不带这个头，不受影响。"
+    )
+
+
 def _bad_host_message(host_header: str, policy: HostPolicy, debug: bool) -> str:
     """拼 `bad_host` 的 message。**只改措辞，不改放行与否。**
 
@@ -302,13 +331,26 @@ class SecurityHeadersMiddleware:
 
 
 class SecurityMiddleware:
-    """准入检查：Host 白名单 → 限流 → 鉴权 → 队列准入。
+    """准入检查：Sec-Fetch-Site → Host 白名单 → 限流 → 鉴权 → 队列准入。
 
     顺序是刻意的：
 
-    1. **Host 白名单最早**：DNS rebinding 的请求连配额都不该消耗，直接 400
+    0. **`Sec-Fetch-Site` 最早，且不受 `api_prefix` 早退影响**：
+       浏览器跨站（rebinding 的必经之路）连 Host 白名单都不必走到
+    1. **Host 白名单**：DNS rebinding 的请求连配额都不该消耗，直接 400
     2. **限流早于鉴权**：否则 token 可以被无限次尝试
     3. **鉴权早于队列**：没资格的请求不该占队列位置
+
+    ## 第 0 步为什么是 `Sec-Fetch-Site`
+
+    Host 白名单是「猜名字」的防线：攻击者只要说出白名单里的名字（或用户
+    `--allow-host` 放宽过）就绕过去了。`Sec-Fetch-Site` 是**浏览器强制写**的头，
+    页面里的 JS 既改不了也删不掉 —— 它说的是「这次请求是谁发起的」，
+    而不是「请求方自称是谁」。两条防线判据不同，所以都要有。
+
+    为什么**没有这个头就放行**（而不是要求必须有）：`curl` 与所有程序化调用
+    都不带它 —— 那是 `nputserve` 的**正常用法**，要求必带等于把 API 全挡掉。
+    也就是说这道防线只对浏览器生效，这正好：rebinding 只可能来自浏览器。
 
     ## 限流挡的到底是什么
 
@@ -372,6 +414,16 @@ class SecurityMiddleware:
 
         sec = self.ctx.security
         path: str = scope.get("path", "")
+
+        # ---- 0. Sec-Fetch-Site（403）
+        # ★ 刻意放在 `api_prefix` 早退**之前**：rebinding 不关心你的前缀，
+        #   它对静态页面和 /api/* 一样感兴趣。放后面等于给静态面留个洞。
+        if sec.block_cross_site:
+            site = _header_value(scope, b"sec-fetch-site").strip().lower()
+            if site in _CROSS_SITE_VALUES:
+                await send_json(send, 403, error_payload(
+                    "cross_site", _cross_site_message()))
+                return
 
         # 前缀外的路径**整体**不受这套准入管（nputweb 的静态资源靠这条免检）。
         # 注意这里 return 掉的是「前缀之外」，不是「豁免」—— 两者语义完全不同，别混。

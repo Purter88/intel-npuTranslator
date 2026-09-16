@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ipaddress
 import secrets
+import sys
+import sys
 
 import pytest
 
@@ -427,3 +429,113 @@ def test_self_signed_cert_covers_extra_hosts(tmp_path):
         open(cert, "rb").read()).extensions.get_extension_for_class(
         x509.SubjectAlternativeName).value
     assert "npu.example.com" in san.get_values_for_type(x509.DNSName)
+
+
+# ================================================================ 多地址绑定（2026-09-17）
+def test_host_list_splits_comma_and_dedupes():
+    assert auth.host_list("127.0.0.1, 192.168.1.5") == ("127.0.0.1", "192.168.1.5")
+    assert auth.host_list(["192.168.1.5", "10.0.0.1"]) == ("192.168.1.5", "10.0.0.1")
+    assert auth.host_list("a,b,a") == ("a", "b")
+    assert auth.host_list(None) == ()
+    assert auth.host_list("[::1]") == ("::1",), "IPv6 方括号要剥掉，bind 时不认"
+
+
+def test_has_non_loopback_takes_the_union():
+    """暴露面取并集：任一个非回环就是非回环。取 first / all 都会漏。"""
+    assert auth.has_non_loopback(["127.0.0.1", "192.168.1.5"]) is True
+    assert auth.has_non_loopback(["127.0.0.1", "::1"]) is False
+    assert auth.has_non_loopback(["127.0.0.1"]) is False
+    assert auth.has_non_loopback([]) is False, "空集合 = 没绑定 = 没暴露"
+
+
+def test_host_policy_admits_every_bound_address():
+    """少加一个，用户从那个地址访问就是 400，而报错还指向「Host 头不对」。"""
+    policy = auth.HostPolicy.build("127.0.0.1,192.168.1.5")
+    assert policy.allows("192.168.1.5:8765")
+    assert policy.allows("127.0.0.1:8765")
+    assert not policy.allows("evil.example.com")
+
+
+def test_host_policy_wildcard_still_expands_local_ips(monkeypatch):
+    monkeypatch.setattr(auth, "local_ip_candidates", lambda: ["192.168.1.77"])
+    policy = auth.HostPolicy.build("0.0.0.0")
+    assert policy.allows("192.168.1.77:8765")
+
+
+def test_san_covers_every_bound_address():
+    sans = tlsmod._san_hosts("127.0.0.1,192.168.1.5")
+    assert "127.0.0.1" in sans and "192.168.1.5" in sans
+
+
+def test_cert_name_is_independent_of_host_order():
+    """`--host a,b` 与 `--host b,a` 必须命中同一份证书，否则每次换顺序都重新点信任。"""
+    assert tlsmod._cert_names(tlsmod._san_hosts("127.0.0.1,192.168.1.5")) == \
+        tlsmod._cert_names(tlsmod._san_hosts("192.168.1.5,127.0.0.1"))
+
+
+def test_wildcard_never_enters_san():
+    """`0.0.0.0` 不是可以写进证书的名字。"""
+    assert "0.0.0.0" not in tlsmod._san_hosts("0.0.0.0")
+
+
+@pytest.mark.parametrize("ip,prefixlen,expected", [
+    ("127.0.0.1", 8, "loopback"),
+    ("::1", 128, "loopback"),
+    ("169.254.14.229", 16, "link_local"),
+    ("fe80::1", 64, "link_local"),
+    ("10.8.0.1", 30, "point_to_point"),
+    ("192.168.1.5", 24, "network"),
+    # /32 先判点对点：公网地址配成 /32 基本都是隧道或主机路由，
+    # 那不是"可以分享给别人"的地址。判据顺序刻意是 p2p 先于 public。
+    ("8.8.8.8", 32, "point_to_point"),
+    ("8.8.8.8", 24, "public"),
+    ("3ffe::1", 64, "public"),
+])
+def test_address_kind(ip, prefixlen, expected):
+    assert auth._classify(ip, prefixlen) == expected
+
+
+def test_ipv6_without_netmask_falls_back_to_64():
+    """Windows 上 psutil 对 IPv6 一律报 `netmask=None`（实测 13 条记录全为 None）。
+
+    按 /128 兜底会把 `3ffe:...` 这种**可路由**的公网地址判成点对点隧道 —— 严重误判。
+    """
+    assert auth._prefixlen(None, "3ffe::1") == 64
+    assert auth._prefixlen(None, "192.168.1.5") == 32, "IPv4 无掩码按「只有自己」算"
+    assert auth._prefixlen("255.255.255.0", "192.168.1.5") == 24
+
+
+def test_virtual_iface_hint_is_only_a_hint():
+    """虚拟网卡判定是**名字启发式**，只用于标注；它不参与任何放行判定。"""
+    assert auth._is_virtual("VMware Network Adapter VMnet1") is True
+    assert auth._is_virtual("vEthernet (WSL)") is True
+    assert auth._is_virtual("WLAN") is False
+
+
+def test_network_addresses_skips_down_interfaces(monkeypatch):
+    """未启用网卡上的地址拿给别人用是没意义的（实测本机 12 个里 6 个在未启用网卡上）。"""
+    import types
+
+    class _Stat:
+        def __init__(self, isup: bool) -> None:
+            self.isup = isup
+
+    class _Addr:
+        def __init__(self, family, address, netmask) -> None:
+            self.family = family
+            self.address = address
+            self.netmask = netmask
+
+    fake = types.SimpleNamespace(
+        net_if_addrs=lambda: {
+            "WLAN": [_Addr(2, "192.168.1.5", "255.255.255.0")],
+            "以太网": [_Addr(2, "192.168.111.1", "255.255.255.0")],
+        },
+        net_if_stats=lambda: {"WLAN": _Stat(True), "以太网": _Stat(False)},
+    )
+    monkeypatch.setitem(sys.modules, "psutil", fake)
+    got = [a.ip for a in auth.network_addresses()]
+    assert got == ["192.168.1.5"]
+
+    got_all = [a.ip for a in auth.network_addresses(include_down=True)]
+    assert sorted(got_all) == ["192.168.1.5", "192.168.111.1"]

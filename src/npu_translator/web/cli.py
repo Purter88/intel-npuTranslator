@@ -59,7 +59,16 @@ from .. import config as cfg
 from ..orchestrate import OrchestrateConfig, Translator
 from ..pool import cpu_pipeline_props
 from . import DEFAULT_HOST, DEFAULT_MAX_INPUT_CHARS, DEFAULT_PORT, DEFAULT_QUEUE_SIZE, DEFAULT_RATE_PER_MIN, DEFAULT_TIMEOUT_S
-from .auth import HostPolicy, TokenChecker, generate_token, is_loopback, parse_hosts
+from .auth import (
+    HostPolicy,
+    TokenChecker,
+    generate_token,
+    has_non_loopback,
+    host_list,
+    is_loopback,
+    network_addresses,
+    parse_hosts,
+)
 from .limits import QueueGate, RateLimiter
 from .tls import TlsError, resolve_tls
 
@@ -71,6 +80,10 @@ EXIT_INTERRUPTED = 130
 
 _GRACE_SECONDS = 3.0  # 优雅 shutdown 的上限，超时就硬退
 
+#: 通配绑定地址。**不是**可以点进去访问的地址 —— 横幅里必须展开成本机地址
+#: （`https://0.0.0.0:8765` 这种写法对用户毫无意义）。
+WILDCARDS = frozenset({"0.0.0.0", "::", "*", ""})
+
 app = typer.Typer(
     add_completion=False,
     invoke_without_command=True,
@@ -81,8 +94,20 @@ app = typer.Typer(
 
 @dataclass
 class Options:
+    # ---- 绑定地址
+    # `hosts` 是**唯一真源**；`host` 降级成「第一个」的兼容别名。
+    #
+    # 为什么不直接把 `host` 改成 tuple：两个 CLI 与约 20 处既有单测都是
+    # `Options(host="127.0.0.1")` 的写法，全量改是纯噪音；保留 `str` 别名后
+    # 旧调用一行不动，新代码一律读 `hosts`。别名由 `sync_hosts()` 单向派生，
+    # 不存在「两个字段各自漂移」的窗口 —— 写 `host` 的人下一次 sync 就会被覆盖。
     host: str = DEFAULT_HOST
+    hosts: tuple[str, ...] = ()
     port: int = DEFAULT_PORT
+    # 横幅是否展开虚拟网卡 / 点对点地址。默认折叠：实测本机 12 个 IPv4 里
+    # 有 8 个在 VMware / WSL / Hyper-V / VPN 隧道上，全打出来是纯噪音，
+    # 而且会诱导用户把 `10.8.0.x/30` 这种隧道地址发给同事。
+    show_all_addresses: bool = False
     # 额外放行的 Host 名字（`--allow-host`，可重复给）。
     # 默认空 —— 没声明就是**不放行**，结果与「输错 IP」完全一致。
     # 刻意**不**自动推导本机主机名 / FQDN / `.local`：理由见 `HostPolicy` 的 docstring。
@@ -103,6 +128,23 @@ class Options:
     rate: int = DEFAULT_RATE_PER_MIN
     debug: bool = False
     no_warmup: bool = False
+
+    def sync_hosts(self) -> None:
+        """把 `host` / `hosts` 归一化成一致状态。
+
+        ⚠️ `merge()` 是 `setattr`，**不会**触发 `__post_init__`，
+        所以命令行合并完之后必须再调一次（两个 CLI 的 `main()` 都调了，
+        `start_server()` 入口再兜一次底 —— 外部调用者可能直接构造 Options）。
+
+        归一化规则：`hosts` 有值就以它为准，否则从 `host` 派生；
+        逗号串在两种写法里都切分。然后 `host = hosts[0]`。
+        """
+        hosts = host_list(self.hosts or (self.host,))
+        self.hosts = hosts or (DEFAULT_HOST,)
+        self.host = self.hosts[0]
+
+    def __post_init__(self) -> None:
+        self.sync_hosts()
 
 
 def _env_str(name: str, default: str) -> str:
@@ -129,6 +171,7 @@ def options_from_env() -> Options:
     return Options(
         host=_env_str("NPT_WEB_HOST", DEFAULT_HOST),
         port=_int("NPT_WEB_PORT", DEFAULT_PORT),
+        show_all_addresses=_bool("NPT_WEB_SHOW_ALL_ADDRESSES", False),
         allow_hosts=parse_hosts(os.getenv("NPT_WEB_ALLOWED_HOSTS")),
         tls=_env_str("NPT_WEB_TLS", "auto"),
         cert=os.getenv("NPT_WEB_CERT") or None,
@@ -167,7 +210,12 @@ def resolve_binding(opts: Options) -> tuple[str, TokenChecker, bool]:
         raise SystemExit(f"参数错误: {exc}") from exc
     tls_enabled = mode is not TlsMode.OFF
 
-    loopback = is_loopback(opts.host)
+    # 🔴 多地址绑定后「是否非回环」必须取 **any**（暴露面是并集不是交集）。
+    #    取第一个的话，`--host 127.0.0.1,192.168.1.5` 会被判成纯回环：
+    #    不强制 token、不禁明文、不禁弱 token —— 等于在局域网上开一个裸服务。
+    #    这是本次改动里唯一能造成真实事故的地方。
+    hosts = host_list(getattr(opts, "hosts", None) or opts.host)
+    loopback = not has_non_loopback(hosts)
     # ---- 逃生舱：`--allow-no-auth` = 「这段网络我负责」。
     # 用 getattr 取值：nputserve 的 Options 是同名同义的另一个 dataclass（鸭子类型传参），
     # 万一调用方还没这个字段，按 False 处理而不是 AttributeError。
@@ -248,50 +296,189 @@ def resolve_binding(opts: Options) -> tuple[str, TokenChecker, bool]:
     return ("https" if tls_enabled else "http"), checker, tls_enabled
 
 
-def resolve_listen_host(host: str) -> str:
-    """把 `0.0.0.0` 之类解析成一个**可访问的**具体地址用于打印。
+def resolve_listen_host(host: object) -> str:
+    """把通配地址解析成**一个**可访问的具体地址。保留给旧调用方与旧单测。
 
-    给用户的横幅里写 `https://0.0.0.0:8765` 是没有意义的 ——
-    那不是可以点进去的地址，用户还得自己查本机 IP。
+    新代码一律用 `resolve_listen_addresses()`：**只给一个地址正是本次要修的毛病**。
+    旧实现用「UDP connect 一个外部地址」挑出网那张网卡，实测是错的选择 ——
+    本机开着 VPN 时它返回的是隧道地址 `10.8.0.x/30`（点对点，别人连不上），
+    而真正能分享的 `192.168.1.x/24` 被排在第二位。「出网」与「可被访问」是两件事。
+
+    现在优先挑 `shareable`（内网 / 公网、非虚拟网卡、非点对点）的第一个。
     """
-    if host in {"0.0.0.0", "::", "*", ""}:
-        try:
-            ip = _primary_ip()
-        except OSError:
-            return "127.0.0.1"
-        return ip or "127.0.0.1"
-    return host
+    hosts = host_list(host)
+    if not hosts:
+        return "127.0.0.1"
+    if hosts[0] not in WILDCARDS:
+        return hosts[0]
+    table = network_addresses()
+    for info in table:
+        if info.shareable:
+            return info.ip
+    return table[0].ip if table else "127.0.0.1"
 
 
-def _primary_ip() -> str:
-    """出网那张网卡的 IP。**不发任何包**（UDP connect 只是让内核填路由表）。"""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def resolve_listen_addresses(hosts: object, *, show_all: bool = False
+                             ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """算出横幅要打印的地址。返回 `(逐行打印的 (地址, 标注), 被折叠的 (地址, 标注))`。
+
+    ## 为什么只打印「bind 集合 ∩ 本机地址」
+
+    无脑枚举全部网卡是错的：实测本机 12 个 IPv4 里 6 个在未启用网卡上、
+    4 个在 VMware / WSL / Hyper-V 上、1 个是 /30 隧道。全打出来既吵，
+    又会诱导用户把连不上的地址发给同事。**连不上的地址不算"可访问地址"。**
+
+    - 绑了具体地址 → 就是那几个（用户点名的，一律打印，但仍标注虚拟/点对点）
+    - 绑了通配地址 → 展开本机**已启用**网卡上非回环、非链路本地的地址
+    - 折叠规则只对通配展开生效：`shareable` 之外的（虚拟网卡 / 点对点）
+      默认折成一行计数，`show_all` 时全展开
+    """
+    binds = host_list(hosts)
+    wild = any(h in WILDCARDS for h in binds)
+    if wild:
+        pool = [a.ip for a in network_addresses()]
+    else:
+        pool = list(binds)
+
+    table = {a.ip: a for a in network_addresses(include_loopback=True)}
+    shown: list[tuple[str, str]] = []
+    folded: list[tuple[str, str]] = []
+    for ip in pool:
+        if is_loopback(ip):
+            continue
+        info = table.get(ip)
+        note = _address_note(info)
+        # 用户点名的地址无条件打印；通配展开的才折叠
+        if (not wild) or show_all or info is None or info.shareable:
+            shown.append((ip, note))
+        else:
+            folded.append((ip, note))
+    return shown, folded
+
+
+def _address_note(info: object) -> str:
+    """一个地址的横幅标注：`网卡名 · 公网 / 点对点 / 虚拟网卡`。
+
+    带网卡名是因为用户看 `192.168.1.5` 分辨不出这是 WLAN 还是虚拟机网卡；
+    带性质是因为「能连上」不等于「该发出去」。
+    """
+    if info is None:
+        return ""
+    bits: list[str] = []
+    if getattr(info, "iface", ""):
+        bits.append(info.iface)
+    kind = getattr(info, "kind", "")
+    if kind == "public":
+        bits.append("公网")
+    elif kind == "point_to_point":
+        bits.append("点对点")
+    if getattr(info, "virtual", False):
+        bits.append("虚拟网卡")
+    return " · ".join(bits)
+
+
+def _address_family(host: str) -> int:
+    """按地址选地址族。
+
+    ⚠️ 旧实现**硬编码 `AF_INET`**，于是 `--host ::1` 会抛
+    `gaierror: getaddrinfo failed`，被上层当成「端口已被占用」报出来 ——
+    一条完全指错方向的诊断（2026-09-17 实测）。多地址绑定必然混入 IPv6，必须修。
+    """
+    return socket.AF_INET6 if ":" in host.strip("[]") else socket.AF_INET
+
+
+def _prepare_listener(sock: "socket.socket") -> None:
+    """bind 之前的 socket 选项。Windows 与 POSIX 在这里**必须分道扬镳**。
+
+    实测依据（2026-09-17，Windows 11）：两个都设了 `SO_REUSEADDR` 的 socket，
+    后一个**可以成功 bind** 到前一个正在监听的同一个 `addr:port`。
+    也就是说旧代码用 `SO_REUSEADDR` 探测端口，在 Windows 上根本测不出冲突 ——
+    真撞车时会变成两个进程静默共存、请求随机分流，比直接报错糟得多。
+
+    - Windows：用专有的 `SO_EXCLUSIVEADDRUSE`，别的进程（哪怕它也设了
+      `SO_REUSEADDR`）抢不走。这正是服务端要的语义。
+    - POSIX：`SO_REUSEADDR` 的含义是「允许 bind 处于 TIME_WAIT 的地址」，
+      继续用它 —— 重启服务时不会卡在 TIME_WAIT 上。
+    """
+    if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+
+def _bind_one(host: str, port: int, backlog: int = 2048) -> "socket.socket":
+    """绑一个监听 socket。失败时**自己关掉**再抛，别把半截 socket 丢给调用方。"""
+    sock = socket.socket(_address_family(host), socket.SOCK_STREAM)
     try:
-        sock.connect(("10.255.255.255", 1))
-        return str(sock.getsockname()[0])
-    finally:
+        _prepare_listener(sock)
+        sock.bind((host, port))
+        sock.listen(backlog)
+        return sock
+    except OSError:
         sock.close()
+        raise
 
 
-def check_port_free(host: str, port: int) -> None:
-    """端口被占用 → **明确报错**（退出码 3）。
+def _bind_error(host: str, port: int, exc: OSError) -> SystemExit:
+    """把 bind 失败翻译成人话。
+
+    两种失败的原因完全不同，但 Windows 给的错误码都不直白：
+    端口被占用（WSAEADDRINUSE）与「这个地址不在本机任何网卡上」
+    （WSAEADDRNOTAVAIL）在用户看来都是「起不来」，所以两种都要写出来，
+    让用户自己对照 —— 只写「端口被占用」会让 `--host` 打错的人去查端口。
+    """
+    return SystemExit(
+        f"无法绑定 {host}:{port}（{exc.strerror or exc}）。\n"
+        f"  端口被占用 → 换一个 --port，或先关掉占用它的进程；\n"
+        f"  提示地址无效 → 这个地址不在本机任何已启用的网卡上（--host 给错了）。"
+    )
+
+
+def bind_listeners(hosts: object, port: int,
+                   backlog: int = 2048) -> tuple[list, int]:
+    """给**每个**绑定地址各绑一个监听 socket，返回 `(sockets, 实际端口)`。
+
+    返回实际端口是因为 `--port 0`：随机端口要 bind 之后才读得到，
+    而 N 个 socket 各自 bind 会拿到 **N 个不同端口** —— 那不是
+    「一个服务监听多个地址」，那是 N 个互不相干的服务。所以第一个
+    socket 拿到端口后，其余复用同一个端口号。
+
+    顺带把「探测端口」和「真正监听」合成一步：旧代码先探测再让 uvicorn 绑，
+    中间有 TOCTOU 窗口，而且在 Windows 上因为 `SO_REUSEADDR` 的语义，
+    那个探测压根测不出冲突（见 `_prepare_listener`）。
+    """
+    binds = host_list(hosts) or (DEFAULT_HOST,)
+    opened: list = []
+    effective = port
+    try:
+        for host in binds:
+            sock = _bind_one(host, effective, backlog)
+            opened.append(sock)
+            if effective == 0:
+                effective = int(sock.getsockname()[1])
+    except OSError as exc:
+        for sock in opened:
+            sock.close()
+        raise _bind_error(host, port, exc) from exc
+    return opened, effective
+
+
+def check_port_free(hosts: object, port: int) -> None:
+    """端口 / 地址能不能绑 → **明确报错**（退出码 3）。
 
     绝对不要悄悄改成 port+1：用户会在旧实例上找半天"我刚才启动的服务呢"，
     而旧实例可能跑着完全不同的配置。端口冲突必须让用户知道。
+
+    现在接受多个地址并逐个试绑 —— 只试第一个的话，第二个地址冲突会在
+    uvicorn 内部炸出来，错误信息是英文的 traceback。
     """
     if port == 0:
         return  # 系统随机分配，无从冲突
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((host if host not in {"0.0.0.0", "::", "*"} else "", port))
-    except OSError as exc:
-        raise SystemExit(
-            f"端口 {port} 已被占用（{exc.strerror or exc}）。"
-            f"换一个 --port，或者先关掉占用它的进程。"
-        ) from exc
-    finally:
-        sock.close()
+    for host in host_list(hosts) or (DEFAULT_HOST,):
+        try:
+            _bind_one(host, port).close()
+        except OSError as exc:
+            raise _bind_error(host, port, exc) from exc
 
 
 # ---------------------------------------------------------------- 服务器
@@ -303,8 +490,11 @@ def build_context(opts: Options) -> tuple[object, TokenChecker, list[str], objec
         # ★ extra_hosts 必须和 HostPolicy 用同一份：只补白名单不补 SAN 的话，
         #   请求会先过白名单再撞浏览器那个「证书名字不匹配」——把一道
         #   看不懂的错换成另一道看不懂的错。
+        # ★ 两个消费点必须用**同一份**绑定地址列表：只补白名单不补 SAN 的话，
+        #   请求会先过白名单再撞浏览器那个「证书名字不匹配」—— 把一道
+        #   看不懂的错换成另一道看不懂的错。
         tls_plan = resolve_tls(opts.tls, opts.cert, opts.key,
-                               bind_host=opts.host, extra_hosts=opts.allow_hosts)
+                               bind_host=opts.hosts, extra_hosts=opts.allow_hosts)
     except TlsError as exc:
         typer.secho(f"参数错误: {exc}", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=EXIT_USAGE) from exc
@@ -325,7 +515,7 @@ def build_context(opts: Options) -> tuple[object, TokenChecker, list[str], objec
     ctx = ServerContext(
         translator=translator,
         token=checker,
-        host_policy=HostPolicy.build(opts.host, extra=opts.allow_hosts),
+        host_policy=HostPolicy.build(opts.hosts, extra=opts.allow_hosts),
         limiter=RateLimiter(per_minute=opts.rate),
         gate=QueueGate(max_pending=opts.queue_size),
         security=SecurityConfig(
@@ -342,17 +532,47 @@ def build_context(opts: Options) -> tuple[object, TokenChecker, list[str], objec
     return ctx, checker, translator.devices, tls_plan
 
 
-def print_banner(opts: Options, display_host: str, port: int, scheme: str,
+def _url(scheme: str, host: str, port: int, query: str = "") -> str:
+    """拼一个**能点进去**的地址。IPv6 必须带方括号，`http://::1:8765` 是非法 URL。"""
+    shown = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return f"{scheme}://{shown}:{port}/{query}"
+
+
+def print_banner(opts: Options, display_hosts: object, port: int, scheme: str,
                  checker: TokenChecker, devices: list[str], fingerprint: str) -> None:
-    """启动横幅：**必须**告诉用户「在哪个端口上」（原始需求明确要求）。"""
+    """启动横幅：**必须**告诉用户「在哪个端口上」（原始需求明确要求）。
+
+    `display_hosts` 可以是单个地址也可以是序列。单个是旧调用方的写法；
+    新调用方一律传 `opts.hosts` —— 只打印一个地址正是本次要修的毛病。
+
+    ## 「网络」而不是「局域网」
+
+    本机地址横跨 WLAN、VMware、WSL、Hyper-V 与 VPN 隧道，统称「局域网」不准确。
+    但**警告文案里不跟着改**：那里要表达的是「同一网段里的其它设备」这个精确含义，
+    换成「网络」会被读成「互联网」，反而稀释警告。
+    """
     query = f"?token={checker.token}" if checker.enabled else ""
     TyperColors = typer.colors
+    binds = host_list(display_hosts)
+    # 只绑了 192.168.x.x 时写 127.0.0.1 是骗人的 —— 那个地址根本连不上。
+    # 绑了通配就一定有回环可用，所以这时候回落到 127.0.0.1 是对的。
+    if not binds or any(h in WILDCARDS for h in binds):
+        local = "127.0.0.1"
+    else:
+        local = next((h for h in binds if is_loopback(h)), binds[0])
+    shown, folded = resolve_listen_addresses(
+        binds, show_all=getattr(opts, "show_all_addresses", False))
 
     typer.secho("")
     typer.secho("nputweb 已就绪（一键停止：Ctrl+C）", fg=TyperColors.GREEN)
-    typer.secho(f"  本地：    {scheme}://127.0.0.1:{port}/{query}")
-    if display_host not in {"127.0.0.1", "localhost"}:
-        typer.secho(f"  局域网：  {scheme}://{display_host}:{port}/{query}")
+    typer.secho(f"  本地：    {_url(scheme, local, port, query)}")
+    for index, (ip, note) in enumerate(shown):
+        label = "网络：    " if index == 0 else "          "
+        typer.secho(f"  {label}{_url(scheme, ip, port, query)}"
+                    + (f"（{note}）" if note else ""))
+    if folded:
+        typer.secho(f"           （另有 {len(folded)} 个虚拟网卡 / 点对点地址未显示，"
+                    "加 --show-all-addresses 展开）", fg=TyperColors.BRIGHT_BLACK)
     if scheme == "https":
         typer.secho(f"  证书：    自签发 · SHA-256 指纹 {fingerprint}")
         typer.secho("            （请核对与首次一致，不一致说明有中间人）",
@@ -365,8 +585,8 @@ def print_banner(opts: Options, display_host: str, port: int, scheme: str,
     else:
         typer.secho("  明文 HTTP：未加密 —— 本机回环访问尚可，请勿跨机使用",
                     fg=TyperColors.YELLOW)
-    if not checker.enabled and not is_loopback(opts.host):
-        typer.secho("  鉴权：    已关闭 + 非回环 —— 局域网内任何人都能用你的 NPU",
+    if not checker.enabled and has_non_loopback(opts.hosts):
+        typer.secho("  鉴权：    已关闭 + 非回环 —— 同一网段内任何人都能用你的 NPU",
                     fg=TyperColors.RED)
     chain = " → ".join(devices) if devices else "?"
     # 只有一个设备时没有"链"可言，别把「NPU」硬说成「回退链 NPU」——那是误导
@@ -382,8 +602,15 @@ def print_banner(opts: Options, display_host: str, port: int, scheme: str,
     typer.secho("")
 
 
-async def _serve(ctx: object, opts: Options) -> None:
-    """起 uvicorn。engine 的预热在主线程另一个 thread 里做，不阻塞监听。"""
+async def _serve(ctx: object, opts: Options, listeners: list | None = None) -> None:
+    """起 uvicorn。engine 的预热在主线程另一个 thread 里做，不阻塞监听。
+
+    :param listeners: **预先绑好的**监听 socket。多地址绑定必须走这条路 ——
+        `uvicorn.Config` 只认一个 `host`，而 `Server.serve(sockets=[...])` 会逐个
+        `loop.create_server(sock=...)`，得到的是「一个 lifespan、一个 app、N 个 listener」。
+        起 N 个 `uvicorn.Server` 是错的：lifespan 会跑 N 次，模型加载 N 遍。
+        传 `None` 时退回旧行为（uvicorn 自己按 `config.host` 绑一个）。
+    """
     import uvicorn
 
     from .app import create_app
@@ -403,10 +630,12 @@ async def _serve(ctx: object, opts: Options) -> None:
     )
     server = uvicorn.Server(config)
     ctx._server = server  # type: ignore[attr-defined]
-    await server.serve()
+    # 空列表要转成 None：uvicorn 见到 `sockets=[]` 会**一个 listener 都不建**，
+    # 服务照样"启动成功"，只是谁都连不上 —— 那种失败静默得可怕。
+    await server.serve(sockets=listeners or None)
 
 
-def run_server(ctx: object, opts: Options) -> int:
+def run_server(ctx: object, opts: Options, listeners: list | None = None) -> int:
     """在**后台线程**里跑 uvicorn，主线程专职等 Ctrl+C。
 
     为什么不直接在主线程 `asyncio.run`：这里要精确控制「优雅 → 超时 → 硬退」这条链。
@@ -418,7 +647,7 @@ def run_server(ctx: object, opts: Options) -> int:
 
     def worker() -> None:
         try:
-            asyncio.run(_serve(ctx, opts))
+            asyncio.run(_serve(ctx, opts, listeners))
         except Exception as exc:  # noqa: BLE001 - 启动失败要让用户看见，而不是静默退出
             typer.secho(f"服务启动失败: {type(exc).__name__}: {exc}", err=True,
                         fg=typer.colors.RED)
@@ -455,7 +684,15 @@ def merge(opts: Options, **cli_values: object) -> Options:
     （SPEC.md · 踩坑记录）。用 `None` 当"我没给"的信号，绕开整个问题。
     """
     for key, value in cli_values.items():
-        if value is not None:
+        if value is None:
+            continue
+        # ★ `host` 只是 `hosts` 的首元素别名。直接 `setattr(opts, "host", ...)`
+        #   会让它与 `hosts` 失同步，而随后 `sync_hosts()` 以 `hosts` 为准 ——
+        #   结果命令行给的 --host 被静默吞掉（2026-09-17 实测）。
+        #   所以命令行写进来的一律落到 `hosts`，`host` 由 sync 派生。
+        if key == "host":
+            opts.hosts = host_list(value)
+        else:
             setattr(opts, key, value)
     return opts
 
@@ -463,8 +700,13 @@ def merge(opts: Options, **cli_values: object) -> Options:
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    host: Optional[str] = typer.Option(None, "--host", help="绑定地址（默认 127.0.0.1；非回环会强制 token）"),
+    host: Optional[str] = typer.Option(
+        None, "--host",
+        help="绑定地址，逗号分隔可绑多个（默认 127.0.0.1；0.0.0.0 = 全部网卡；任一个非回环就强制 token）"),
     port: Optional[int] = typer.Option(None, "--port", help="端口（默认 8765；被占用则报错，0 = 系统分配）"),
+    show_all_addresses: bool = typer.Option(
+        False, "--show-all-addresses",
+        help="横幅展开虚拟网卡与点对点地址（默认折叠，只留一行计数）"),
     tls: Optional[str] = typer.Option(None, "--tls", help="auto=自签（默认）| on=用 --cert/--key | off=明文"),
     cert: Optional[str] = typer.Option(None, "--cert", help="证书路径（--tls on 时必填）"),
     key: Optional[str] = typer.Option(None, "--key", help="私钥路径（--tls on 时必填）"),
@@ -514,6 +756,9 @@ def main(
         opts.allow_hosts = tuple(allow_host)
     # bool 型：命令行开关只能"加"，env 只能"减"。用 or 合并，`False` 不会覆盖 env 的 True
     opts.no_auth = opts.no_auth or no_auth
+    opts.show_all_addresses = opts.show_all_addresses or show_all_addresses
+    # merge() 是 setattr，不触发 __post_init__ → 合并完必须手动同步 host / hosts
+    opts.sync_hosts()
     opts.allow_insecure = opts.allow_insecure or allow_insecure
     opts.allow_no_auth = opts.allow_no_auth or allow_no_auth
     opts.debug = opts.debug or debug
@@ -528,23 +773,25 @@ def main(
 
 def start_server(opts: Options) -> int:
     """把服务跑起来并阻塞到退出。返回退出码（测试与外部调用者用得着）。"""
-    # ① 端口先查：默认的 8765 被别的实例占着是最常见的情况，早点说清楚
-    try:
-        check_port_free(opts.host, opts.port)
-    except SystemExit as exc:
-        typer.secho(f"启动失败: {exc}", err=True, fg=typer.colors.RED)
-        return EXIT_STARTUP
+    opts.sync_hosts()  # 外部调用者可能直接构造 Options，这里兜底
 
-    # ② 证书 + 绑定规则的合法性（含 D7 的拒绝启动）
+    # ① 证书 + 绑定规则的合法性（含 D7 的拒绝启动）
+    #    ★ 刻意放在 bind **之前**：D7 那条「非回环 + 明文」是可执行的提示，
+    #      先绑端口的话用户会先撞上「端口被占用」，排查方向直接指错。
     try:
         build = build_context(opts)
     except typer.Exit as exc:
         return exc.exit_code if isinstance(exc.exit_code, int) else EXIT_USAGE
     server_ctx, checker, devices, tls_plan = build
 
-    display_host = resolve_listen_host(opts.host)
+    # ② 真正绑定（端口冲突检测也在这一步完成，见 bind_listeners）
+    try:
+        listeners, real_port = bind_listeners(opts.hosts, opts.port)
+    except SystemExit as exc:
+        typer.secho(f"启动失败: {exc}", err=True, fg=typer.colors.RED)
+        return EXIT_STARTUP
+
     scheme = "https" if getattr(server_ctx, "https", False) else "http"
-    real_port = opts.port
 
     # ③ 后台预热：NPU 首次编译约 30 s，不能拖住监听（否则用户以为启动失败）
     if not opts.no_warmup:
@@ -552,24 +799,24 @@ def start_server(opts: Options) -> int:
         threading.Thread(target=_warmup, args=(translator,), daemon=True,
                          name="nputweb-warmup").start()
 
-    print_banner(opts, display_host, real_port, scheme, checker,
+    print_banner(opts, opts.hosts, real_port, scheme, checker,
                  devices, getattr(tls_plan, "fingerprint", "") or "")
 
-    # ④ 自动开浏览器：只在回环地址时默认开（远程开浏览器没意义）
-    if opts.open_browser and is_loopback(display_host):
+    # ④ 自动开浏览器：绑了回环才开（只绑远端地址时本地浏览器连不上）
+    if opts.open_browser and any(is_loopback(h) for h in opts.hosts):
         threading.Timer(1.0, _open_browser,
                         args=(f"{scheme}://127.0.0.1:{real_port}/"
                               f"{'?token=' + checker.token if checker.enabled else ''}",)
                         ).start()
 
-    if scheme == "http" and not is_loopback(opts.host):
-        typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：局域网内任何人都能用你的 NPU",
+    if scheme == "http" and has_non_loopback(opts.hosts):
+        typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：同一网段内任何人都能用你的 NPU",
                     err=True, fg=typer.colors.RED)
-    if not checker.enabled and not is_loopback(opts.host):
+    if not checker.enabled and has_non_loopback(opts.hosts):
         typer.secho("⚠️ 当前是**无鉴权 + 非回环**：同一网段任何人都能直接用你的 NPU，"
                     "连 token 都不用猜", err=True, fg=typer.colors.RED)
 
-    return run_server(server_ctx, opts)
+    return run_server(server_ctx, opts, listeners)
 
 
 def _warmup(translator: object) -> None:

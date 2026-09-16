@@ -29,6 +29,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
+from .auth import host_list
+
 __all__ = [
     "TlsError",
     "TlsMode",
@@ -116,12 +118,22 @@ class TlsPlan:
 
 
 # ---------------------------------------------------------------- SAN 与文件名
-def _san_hosts(bind_host: str | None = None, extra: Iterable[str] = ()) -> list[str]:
-    """造出证书要覆盖的名字集合（决定文件名，也决定浏览器会不会报名字不匹配）。"""
+def _san_hosts(bind_host: object = None, extra: Iterable[str] = ()) -> list[str]:
+    """造出证书要覆盖的名字集合（决定文件名，也决定浏览器会不会报名字不匹配）。
+
+    多地址绑定后**每一个**绑定地址都要进 SAN：漏掉一个，从那个地址访问就是
+    `ERR_CERT_COMMON_NAME_INVALID` —— 浏览器给的是一句看不懂的错，用户只会以为
+    「服务挂了」，不会想到证书。（与 `--allow-host` 同一类坑：只补白名单不补 SAN，
+    等于把一道看不懂的错换成另一道看不懂的错。）
+
+    通配地址（`0.0.0.0` / `::`）不进 SAN —— 它不是可以写进证书的名字。
+    返回值**排序**：`_cert_names` 用排序后的集合派生文件名，所以
+    `--host a,b` 与 `--host b,a` 命中同一份证书，不会因为顺序换一张。
+    """
     hosts = {"localhost", "127.0.0.1", "::1"}
-    host = (bind_host or "").strip()
-    if host and host not in {"0.0.0.0", "::", ""}:
-        hosts.add(host)
+    for host in host_list(bind_host):
+        if host not in {"0.0.0.0", "::", "*"}:
+            hosts.add(host)
     hosts.update(h for h in extra if h)
     return sorted(hosts)
 
@@ -176,7 +188,7 @@ def _loadable_pem_cert(path: Path) -> bool:
 def ensure_self_signed(
     directory: str | os.PathLike[str] | None = None,
     *,
-    bind_host: str | None = None,
+    bind_host: object = None,
     extra_hosts: Iterable[str] = (),
     days: int = DEFAULT_DAYS,
 ) -> tuple[str, str]:
@@ -184,6 +196,7 @@ def ensure_self_signed(
 
     复用规则见本模块 docstring 第 1 条：文件名由 SAN 派生，所以
     「同样绑定到 127.0.0.1」永远复用同一份，「改成绑 192.168.x.x」才会新签一张。
+    多地址同理：`a,b` 与 `b,a` 是同一份，加了第三个地址才是新的一份。
     """
     try:
         from cryptography import x509
@@ -310,7 +323,7 @@ def resolve_tls(
     key: str | None = None,
     *,
     data_dir: str | os.PathLike[str] | None = None,
-    bind_host: str | None = None,
+    bind_host: object = None,
     extra_hosts: Iterable[str] = (),
 ) -> TlsPlan:
     """把 `--tls / --cert / --key` 解析成一个可执行的方案。**不做任何 IO 以外的事情**。

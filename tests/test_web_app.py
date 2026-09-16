@@ -9,6 +9,7 @@ TestClient 的默认 Host 是 `testserver`，会被 HostPolicy 拒（正确的 D
 from __future__ import annotations
 
 import random
+import socket
 import threading
 
 import pytest
@@ -20,7 +21,8 @@ from npu_translator.web import DEFAULT_RATE_PER_MIN
 from npu_translator.web import cli as webcli
 from npu_translator.web import routes as webroutes
 from npu_translator.web.app import SecurityConfig, ServerContext, create_app
-from npu_translator.web.auth import HostPolicy, TokenChecker
+from npu_translator.web import auth
+from npu_translator.web.auth import AddressInfo, HostPolicy, TokenChecker
 from npu_translator.web.limits import QueueGate, RateLimiter
 
 fastapi = pytest.importorskip("fastapi", reason="nputweb 需要 [web] extra")
@@ -301,9 +303,33 @@ def test_no_auth_rejected_for_non_loopback():
 
 
 def test_resolve_listen_host_never_prints_wildcard(monkeypatch):
-    monkeypatch.setattr(webcli, "_primary_ip", lambda: "192.168.1.77")
+    """通配地址必须展开成一个**具体**地址；`https://0.0.0.0:8765` 对用户毫无意义。
+
+    2026-09-17：不再 monkeypatch `_primary_ip` —— 那个「UDP connect 骗路由表」的
+    实现被删了。实测它在这台机器上返回的是 VPN 隧道地址（/30，别人连不上），
+    而真正可分享的 WLAN 地址被排在第二位。现在优先挑 `shareable` 的第一个。
+    """
+    monkeypatch.setattr(
+        webcli, "network_addresses",
+        lambda **kw: [AddressInfo(ip="192.168.1.77", iface="WLAN", prefixlen=24,
+                                  is_up=True, kind="network", virtual=False)],
+    )
     assert webcli.resolve_listen_host("0.0.0.0") == "192.168.1.77"
     assert webcli.resolve_listen_host("127.0.0.1") == "127.0.0.1"
+
+
+def test_addr_sort_key_prefers_ipv4_over_ipv6():
+    """只按地址字节排的话 IPv6 公网会压在 IPv4 内网前面 —— 用户要的是 v4。
+
+    实测本机：`3ffe:...`（IPv6 公网）排在 `192.168.1.5`（IPv4 内网）之前，
+    于是「挑一个地址打印」会挑中那个 IPv6。
+    """
+    v6 = AddressInfo(ip="3ffe::1", iface="WLAN", prefixlen=64,
+                     is_up=True, kind="public", virtual=False)
+    v4 = AddressInfo(ip="192.168.1.77", iface="WLAN", prefixlen=24,
+                     is_up=True, kind="network", virtual=False)
+    ordered = sorted([v6, v4], key=auth._addr_sort_key)
+    assert [a.ip for a in ordered] == ["192.168.1.77", "3ffe::1"]
 
 
 def test_port_in_use_raises_startup_error():
@@ -327,7 +353,7 @@ def test_run_server_returns_130_on_interrupt(monkeypatch):
         def __init__(self) -> None:
             self.should_exit = False
 
-    async def fake_serve(ctx, opts):
+    async def fake_serve(ctx, opts, listeners=None):
         return None
 
     monkeypatch.setattr(webcli, "_serve", fake_serve)
@@ -530,6 +556,8 @@ def test_security_config_defaults_match_nputweb():
     assert sec.redoc_url == "/redoc"
     assert sec.openapi_url == "/openapi.json"
     assert sec.openapi_requires_debug is True
+    # 2026-09-17 新增：跨站请求默认拒（rebinding 在 HTTP 层唯一不可伪造的指纹）
+    assert sec.block_cross_site is True
 
     # 两个豁免集合的**默认内容**都等于改造前那一个集合（行为不变）；
     # 它们是**两个字段**而不是一个 —— 这点由 nputserve 的取值不同来证明
@@ -751,3 +779,203 @@ def test_bad_host_message_hides_full_whitelist_unless_debug():
     dbg_msg = client(dbg).get(
         "/api/health", headers={"Host": "evil.example.com"}).json()["error"]["message"]
     assert "testserver" in dbg_msg
+
+
+# ================================================================ 多地址绑定（2026-09-17）
+def test_host_accepts_comma_separated_list():
+    opts = webcli.Options(host="127.0.0.1,192.168.1.5")
+    assert opts.hosts == ("127.0.0.1", "192.168.1.5")
+    assert opts.host == "127.0.0.1", "host 是首元素别名，给既有调用方用"
+
+
+def test_hosts_field_is_the_source_of_truth():
+    opts = webcli.Options(hosts=("10.0.0.1", "10.0.0.2"))
+    assert opts.host == "10.0.0.1"
+    assert opts.hosts == ("10.0.0.1", "10.0.0.2")
+
+
+def test_hosts_stay_in_sync_after_merge():
+    """🔴 回归：`merge()` 直接写 `host` 会让别名与真源失同步。
+
+    2026-09-17 实测：不改写 `merge()` 的话，命令行的 `--host a,b` 会被随后的
+    `sync_hosts()` 以**陈旧的** `hosts` 为准，整条 --host 被静默吞掉。
+    所以 merge 一律落到 `hosts` 上，`host` 只由 sync 派生。
+    """
+    opts = webcli.merge(webcli.Options(), host="10.0.0.1,10.0.0.2")
+    assert opts.hosts == ("10.0.0.1", "10.0.0.2"), "merge 必须写到真源 hosts 上"
+    opts.sync_hosts()
+    assert opts.hosts == ("10.0.0.1", "10.0.0.2"), "sync 必须幂等"
+    assert opts.host == "10.0.0.1"
+
+
+def test_duplicate_hosts_are_collapsed():
+    assert webcli.host_list("127.0.0.1,127.0.0.1") == ("127.0.0.1",)
+
+
+def test_non_loopback_takes_any_not_first(capsys):
+    """🔴 回归：多地址下「是否非回环」必须取 **any**，暴露面是并集不是交集。
+
+    取第一个的话 `--host 127.0.0.1,192.168.1.5` 会被判成纯回环：不强制 token、
+    不禁明文 —— 等于在局域网上开一个裸服务。这是本次改动里最危险的一条语义。
+    """
+    opts = webcli.Options(host="127.0.0.1,192.168.1.5", tls="off", allow_insecure=False)
+    with pytest.raises(typer.Exit) as excinfo:
+        webcli.resolve_binding(opts)
+    assert excinfo.value.exit_code == webcli.EXIT_STARTUP
+    assert "拒绝启动" in capsys.readouterr().err
+
+
+def test_token_forced_when_only_the_second_host_is_public():
+    opts = webcli.Options(host="127.0.0.1,192.168.1.5", tls="off", allow_insecure=True)
+    _, checker, _ = webcli.resolve_binding(opts)
+    assert checker.enabled, "任一个非回环就必须强制 token"
+
+
+def test_bind_listeners_shares_one_port():
+    """`--port 0` 下多个 socket 必须落在**同一个**端口，否则是 N 个互不相干的服务。"""
+    socks, port = webcli.bind_listeners("127.0.0.1,127.0.0.2", 0)
+    try:
+        assert len(socks) == 2
+        assert port != 0
+        assert {s.getsockname()[1] for s in socks} == {port}
+        assert [s.getsockname()[0] for s in socks] == ["127.0.0.1", "127.0.0.2"]
+    finally:
+        for sock in socks:
+            sock.close()
+
+
+def test_bind_ipv6_loopback_is_not_misreported_as_port_conflict():
+    """旧实现硬编码 `AF_INET` → `--host ::1` 抛 gaierror 被当成「端口已被占用」。"""
+    socks, port = webcli.bind_listeners("::1", 0)
+    try:
+        assert port != 0
+        assert socks[0].family == socket.AF_INET6
+    finally:
+        for sock in socks:
+            sock.close()
+
+
+def test_address_family_follows_the_host():
+    assert webcli._address_family("::1") == socket.AF_INET6
+    assert webcli._address_family("[::1]") == socket.AF_INET6
+    assert webcli._address_family("127.0.0.1") == socket.AF_INET
+
+
+def test_bind_conflict_is_reported_as_bind_error():
+    """端口冲突要给「无法绑定 …」而不是让 uvicorn 抛英文 traceback。"""
+    sock, port = webcli.bind_listeners("127.0.0.1", 0)[0][0], None
+    port = sock.getsockname()[1]
+    try:
+        with pytest.raises(SystemExit, match="无法绑定"):
+            webcli.check_port_free("127.0.0.1", port)
+    finally:
+        sock.close()
+
+
+def test_banner_prints_every_bound_address(capsys):
+    opts = webcli.Options(host="127.0.0.1,192.168.1.5", tls="off", no_auth=True)
+    webcli.print_banner(opts, opts.hosts, 8765, "http", TokenChecker(None), ["NPU"], "")
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:8765/" in out
+    assert "http://192.168.1.5:8765/" in out
+
+
+def test_banner_labels_the_section_network_not_lan(capsys, monkeypatch):
+    """本机地址横跨 WLAN / 虚拟机 / 隧道，统称「局域网」不准确。
+
+    但**只改横幅标签**：警告文案里的「局域网 / 同一网段」保留，那里要的是
+    「同一广播域的其它设备」这个精确含义，换成「网络」会被读成互联网。
+    """
+    monkeypatch.setattr(
+        webcli, "network_addresses",
+        lambda **kw: [AddressInfo(ip="192.168.1.5", iface="WLAN", prefixlen=24,
+                                  is_up=True, kind="network", virtual=False)],
+    )
+    opts = webcli.Options(host="0.0.0.0", tls="off", no_auth=True)
+    webcli.print_banner(opts, opts.hosts, 8765, "http", TokenChecker(None), ["NPU"], "")
+    out = capsys.readouterr().out
+    assert "网络" in out
+    assert "局域网" not in out
+
+
+def test_banner_folds_virtual_nics_unless_asked(capsys, monkeypatch):
+    """实测本机 12 个 IPv4 里 8 个在虚拟网卡 / 隧道上，全打出来是纯噪音。"""
+    def fake(**kw):
+        return [
+            AddressInfo(ip="192.168.1.5", iface="WLAN", prefixlen=24,
+                        is_up=True, kind="network", virtual=False),
+            AddressInfo(ip="192.168.200.1", iface="VMware VMnet1", prefixlen=24,
+                        is_up=True, kind="network", virtual=True),
+        ]
+
+    monkeypatch.setattr(webcli, "network_addresses", fake)
+    opts = webcli.Options(host="0.0.0.0", tls="off", no_auth=True)
+    webcli.print_banner(opts, opts.hosts, 8765, "http", TokenChecker(None), ["NPU"], "")
+    out = capsys.readouterr().out
+    assert "192.168.1.5" in out
+    assert "192.168.200.1" not in out, "虚拟网卡默认折叠"
+    assert "另有 1 个" in out
+
+    opts = webcli.Options(host="0.0.0.0", tls="off", no_auth=True,
+                          show_all_addresses=True)
+    webcli.print_banner(opts, opts.hosts, 8765, "http", TokenChecker(None), ["NPU"], "")
+    assert "192.168.200.1" in capsys.readouterr().out
+
+
+def test_banner_brackets_ipv6_addresses(capsys):
+    """`http://::1:8765` 不是合法 URL —— IPv6 必须带方括号。"""
+    opts = webcli.Options(host="::1", tls="off", no_auth=True)
+    webcli.print_banner(opts, opts.hosts, 8765, "http", TokenChecker(None), ["NPU"], "")
+    assert "http://[::1]:8765/" in capsys.readouterr().out
+
+
+def test_banner_local_line_is_honest_when_no_loopback_bound(capsys):
+    """只绑了 192.168.1.5 却写 127.0.0.1 是骗人的 —— 那个地址连不上。"""
+    opts = webcli.Options(host="192.168.1.5", tls="off", no_auth=True)
+    webcli.print_banner(opts, opts.hosts, 8765, "http", TokenChecker(None), ["NPU"], "")
+    out = capsys.readouterr().out
+    assert "http://192.168.1.5:8765/" in out
+    assert "127.0.0.1" not in out
+
+
+# ================================================================ Sec-Fetch-Site
+def test_cross_site_request_is_rejected():
+    """rebinding 的指纹：浏览器在跨站请求上一律带上这个头，且 JS 改不了。"""
+    ctx = make_ctx()
+    r = client(ctx).get("/api/health", headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "cross_site"
+
+
+def test_request_without_sec_fetch_site_is_allowed():
+    """curl / 脚本不带这个头 —— 那是 nputserve 的正常用法，必须放行。"""
+    ctx = make_ctx()
+    assert client(ctx).get("/api/health").status_code == 200
+
+
+@pytest.mark.parametrize("value", ["same-origin", "none", "SAME-ORIGIN", "None"])
+def test_same_origin_and_none_are_allowed(value):
+    """`same-origin` = 页面自己的 XHR；`none` = 地址栏直达 / 书签。挡了等于自锁。"""
+    ctx = make_ctx()
+    r = client(ctx).get("/api/health", headers={"Sec-Fetch-Site": value})
+    assert r.status_code == 200
+
+
+def test_cross_site_is_blocked_outside_api_prefix():
+    """rebinding 不认你的前缀 —— 只挡 /api/ 等于给静态面留个洞。"""
+    ctx = make_ctx()
+    r = client(ctx).get("/", headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 403
+
+
+def test_cross_site_check_can_be_switched_off():
+    ctx = make_ctx(security=SecurityConfig(block_cross_site=False))
+    r = client(ctx).get("/api/health", headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 200
+
+
+def test_cross_site_is_checked_before_host_whitelist():
+    """即使 Host 在白名单里（用户 --allow-host 放宽过），跨站照样拒。"""
+    ctx = make_ctx(host_policy=HostPolicy.build("127.0.0.1", extra=["localhost"]))
+    r = client(ctx).get("/api/health", headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 403
