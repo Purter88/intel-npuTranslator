@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| 当前状态 | M0 / M1 / M2 ✅ · **nputweb（Web 界面）✅** · **快速部署 ✅** · M3 部分 · M4 ⬜ |
+| 当前状态 | M0 / M1 / M2 ✅ · **nputweb（Web 界面）✅** · **快速部署 ✅** · **M3 `/v1/*` 服务 ✅**（功耗实测、长文本端到端未做）· M4 ⬜ |
 | 实测吞吐 | NPU **32.4 tok/s** · CPU **46–54 tok/s** · 单测 **300 项**全过 |
 | 主要平台 | Windows 11 + Intel Core Ultra（NPU4） |
 | 授权 | **MIT** |
@@ -25,6 +25,7 @@
   - [方式二：手动三步](#方式二手动三步)
 - [命令行翻译 nputr](#命令行翻译-nputr)
 - [Web 界面 nputweb](#web-界面-nputweb)
+- [对外服务 nputserve](#对外服务-nputserve)
 - [性能基准 `-b`](#性能基准--b)
 - [项目状态与路线图](#项目状态与路线图)
 - [平台支持](#平台支持)
@@ -96,7 +97,7 @@ M0 基线（2026-09-11）：
 
 ### 方式一：一键部署（推荐）
 
-一条命令建环境、装依赖、下模型、生成 `nputr` / `nputweb` 两个命令：
+一条命令建环境、装依赖、下模型、生成 `nputr` / `nputweb` / `nputserve` 三个命令：
 
 ```powershell
 python scripts\build.py                 # 交互式（会问要不要下模型）
@@ -112,7 +113,7 @@ python scripts\build.py --list-models   # 看可选模型
 ```
 
 > ⚠️ **不要用 `setx`** —— 它会把 `%USERPROFILE%` 这类变量展平成死字符串，还会 1024 字符截断。
-> 加完重开终端，用 `nputr --help` / `nputweb --help` 验证。
+> 加完重开终端，用 `nputr --help` / `nputweb --help` / `nputserve --help` 验证。
 
 其他选项：`--python <解释器>`（默认自动找 3.11）· `--model <key>` · `--no-deps`（只重建命令脚本）· `--clean`（删掉生成的 `bin\`）。
 
@@ -209,6 +210,61 @@ nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 
 ---
 
+## 对外服务 nputserve
+
+独立命令 **`nputserve`**，只挂 `/v1/*` 的**程序化**接口 —— 没有页面，是给脚本 / 第三方程序调的。
+默认 HTTPS + 自签证书，只绑回环地址。**默认端口 8766**，与 `nputweb` 的 8765 错开
+（两个命令**会**同时起，端口撞车会让第二个启动失败）。
+
+```powershell
+nputserve                                    # 默认 https://127.0.0.1:8766
+nputserve --port 9001                        # 换端口
+nputserve --host 0.0.0.0                     # 允许局域网访问（自动生成 token 并打印）
+nputserve --tls off                          # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
+nputserve --debug                            # 开 /docs /redoc 与 access log
+```
+
+只有四个端点：
+
+| 端点 | 说明 |
+|---|---|
+| `POST /v1/translate` | 翻译一段文本（请求体与 nputweb 的 `/api/translate` 同形）|
+| `POST /v1/translate/stream` | 流式翻译（`text/event-stream`，**不分段**）|
+| `GET /v1/languages` | 支持的 38 个语种 |
+| `GET /v1/health` | 健康与排队状态（引擎加载中会显示 `loading → ready`）|
+
+调用示例（`--tls off` 时把 `https` 换成 `http`、去掉 `-k`）：
+
+```powershell
+curl.exe -k https://127.0.0.1:8766/v1/health
+curl.exe -k https://127.0.0.1:8766/v1/translate -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"text":"今天天气不错","target":"en"}'
+```
+
+> 请求体字段：`text`（必填）· `target` · `source` · `newline` · `strict` · `max_new_tokens`。
+> `/v1/openapi.json` 默认开放（给第三方程序读），`/docs` / `/redoc` 默认**关闭**，要 `--debug`。
+> ⚠️ PowerShell 5.1 的 `curl` 是 `Invoke-WebRequest` 的别名，所以上面写的是 `curl.exe`。
+
+与 `nputweb` 是**两个独立进程**：各自独立端口、独立 token、独立限流桶，崩一个不影响另一个。
+安全策略（非回环强制 token、「非回环 + 明文」默认拒绝启动）与 nputweb 一致，
+详见 `SPEC.md · WebUI（nputweb）`。
+
+### nputserve 的环境变量
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `NPT_SERVE_HOST` | `127.0.0.1` | 非回环会强制 token |
+| `NPT_SERVE_PORT` | `8766` | 与 nputweb 的 8765 错开；被占用直接报错 |
+| `NPT_SERVE_TLS` | `auto` | `auto` 自签 / `on` 自带证书 / `off` 明文 |
+| `NPT_SERVE_CERT` / `NPT_SERVE_KEY` | — | `--tls on` 时用 |
+| `NPT_SERVE_TOKEN` | 自动生成 | 不指定则随机生成并打印一次 |
+| `NPT_SERVE_NO_AUTH` | off | 关闭鉴权（仅回环地址允许） |
+| `NPT_SERVE_ALLOW_INSECURE` | off | 放行「非回环 + 明文」 |
+| `NPT_SERVE_DEBUG` | off | 开 `/docs` / `/redoc` 与 access log |
+
+命令行参数优先级高于环境变量。
+
+---
+
 ## 性能基准 `-b`
 
 一条命令把本机所有能用的 OpenVINO 设备都测一遍，**换机器也能直接横向比**
@@ -253,7 +309,7 @@ CPU            2.12     2.14     45.56     33.7~55.2     0.152     0.586     20.
 | — | **nputweb（Web 界面）**：独立命令、TLS 三态、原生前端 | ✅ |
 | — | **`orchestrate.py` 共用编排层**（CLI / WebUI / 未来的 service 共用一份） | ✅ |
 | — | **`--model` 换模型 + `scripts/build.py` 快速部署** | ✅ |
-| M3 | 对外 HTTP 服务 `/v1/*`（`service.py` + `server.py`）、功耗实测、长文本端到端 | ⬜ 未开工 |
+| M3 | **对外 HTTP 服务 `/v1/*`**（`service.py` + `server.py` + `nputserve` 命令）**已交付**；功耗实测、长文本端到端**未做** | 🟡 **部分完成** |
 | M4 | 术语表、文档翻译、剪贴板划词、60 句质量回归集自动化 | ⬜ 未开工 |
 
 ### 已知的开放问题
@@ -538,6 +594,8 @@ src/npu_translator/
 ├── benchmark.py     # 跨平台性能基准（-b）：环境指纹 + TTFT/tok/s/RSS + 波动区间
 ├── orchestrate.py   # ★ 共用编排层：CLI / WebUI / 未来的 service 共用一份
 ├── cli.py           # 命令行入口（nputr）
+├── service.py       # nputserve 的适配层：请求校验 → 调 orchestrate → 组装响应（不 import fastapi）
+├── server.py        # nputserve 入口：只挂 /v1/* 的独立命令（默认端口 8766）
 └── web/             # nputweb：Web 界面子包（独立命令 nputweb）
 ```
 
