@@ -26,7 +26,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from npu_translator import config as cfg  # noqa: E402
 from npu_translator.pool import TranslationPool, build_workers, cpu_pipeline_props  # noqa: E402
 
 # 与 2026-09-12 静态分配那次实测保持同一组负载，数字才有可比性

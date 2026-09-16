@@ -53,6 +53,35 @@ line-length = 120
 target-version = "py311"
 src = ["src", "tests"]
 
+# ---------------------------------------------------------------------------
+# 只豁免**一个文件**的 F401，理由写在下面，改之前先读完。
+#
+# `src/npu_translator/web/__init__.py` 的 `if TYPE_CHECKING:` 块下有 11 条 F401
+# （create_app / TokenChecker / host_allows / is_loopback / RateLimiter /
+#  SlidingWindow / build_router / TlsMode / cert_fingerprint /
+#  ensure_self_signed / resolve_tls）。它们不是"忘了删"，而是惰性重导出的
+# **类型侧声明**：运行时由 `_LAZY` 字典 + `__getattr__` 分发（同文件 64–78 行），
+# TYPE_CHECKING 块只负责让类型检查器与
+# `from npu_translator.web import create_app` 认得到这些名字。
+# 那是惰性导入硬约束（CONTRIBUTING.md §3.1）的直接产物，**删掉就破了惰性**。
+#
+# 为什么用配置豁免，而不是在那 11 行行尾各加一条 `# noqa: F401`：
+#
+#   1. 11 行注释会把源码搞脏，而这是个**文件级**的决定 —— 表达它的正确位置是配置，
+#      不是散落在行尾。
+#   2. 更要紧的是：F401 这个规则码下其实混着两类东西 —— 这里的惰性重导出（假阳性），
+#      和别处真的未使用导入。一旦给这里加了 noqa，两类就再也分不开：
+#      下次有人引入真的未使用导入，它会安静地躺在一片 noqa 里，
+#      而 noqa 的语义本来就是"别再报我"。那是换一种方式把问题盖住。
+#      per-file-ignores 把豁免范围**收窄到这一个文件**，别处的 F401 照旧报。
+#
+# 代价（明知故犯）：这个文件里将来若出现真的未使用导入，也会被一并放过。
+# 接受它 —— 整个文件就是一张惰性导出表，规模很小，而且比起"真假再也分不开"，
+# 这是更小的那个坏处。
+# ---------------------------------------------------------------------------
+[tool.ruff.lint.per-file-ignores]
+"src/npu_translator/web/__init__.py" = ["F401"]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

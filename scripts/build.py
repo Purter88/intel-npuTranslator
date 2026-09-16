@@ -9,14 +9,14 @@
     python scripts/build.py --python C:\\Python311\\python.exe
     python scripts/build.py --clean           # 只删 bin\\（不动 venv 与模型）
 
-产出 ``bin\\nputr.cmd`` 与 ``bin\\nputweb.cmd`` 两个转发脚本。
+产出 ``bin\\nputr.cmd``、``bin\\nputweb.cmd`` 与 ``bin\\nputserve.cmd`` 三个转发脚本。
 
 **本脚本不修改系统 PATH**，只打印提示由用户自己添加 —— 不碰注册表，
 也就不需要管理员权限、不会有改坏 PATH 的风险（User PATH 是 REG_EXPAND_SZ，
 用 setx 改会把 ``%USERPROFILE%`` 这类变量展平成死字符串）。
 
 两条硬约定（改之前先想清楚）：
-1. **只导出 nputr / nputweb 两个命令**。pyproject 里还有 ``npu-translate`` 别名，
+1. **只导出 nputr / nputweb / nputserve 三个命令**。pyproject 里还有 ``npu-translate`` 别名，
    它仍存在于 ``.venv\\Scripts`` 但**不进 PATH**（见 SPEC.md · CLI 管道契约）。
 2. **保留 editable install**：它提供 console script 与 dist-info 元数据，
    是 `pip list` / `importlib.metadata` 能认到本项目的唯一来源。
@@ -31,6 +31,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 VENV_DIR = ROOT / ".venv"
@@ -66,10 +67,11 @@ MODELS: list[ModelSpec] = [
     ),
 ]
 
-# (命令名, 模块路径)。只放两个 —— 见文件头第 1 条约定。
+# (命令名, 模块路径)。只放三个 —— 见文件头第 1 条约定。
 COMMANDS: list[tuple[str, str]] = [
     ("nputr", "npu_translator.cli"),
     ("nputweb", "npu_translator.web.cli"),
+    ("nputserve", "npu_translator.server"),
 ]
 
 # .cmd 必须全 ASCII：cmd.exe 按 GBK 解析批处理，中文注释会乱码。
@@ -105,7 +107,7 @@ def step(msg: str) -> None:
     info(f"\n==> {msg}")
 
 
-def die(msg: str) -> "NoReturn":  # type: ignore[valid-type]
+def die(msg: str) -> NoReturn:
     info(f"\n[FAIL] {msg}")
     raise SystemExit(1)
 
@@ -237,9 +239,11 @@ def write_shims() -> None:
 
 
 def smoke(vp: Path) -> None:
-    step("校验 nputweb 依赖完整性")
+    # nputweb 与 nputserve 的依赖集合相同（都是 fastapi / uvicorn / cryptography），
+    # 一次 import 同时校验两个命令，报错信息里两个名字都要点出来。
+    step("校验 nputweb / nputserve 依赖完整性")
     if run([vp, "-c", "import cryptography, fastapi, uvicorn"]) != 0:
-        die("nputweb 依赖不完整（cryptography / fastapi / uvicorn）")
+        die("nputweb / nputserve 依赖不完整（cryptography / fastapi / uvicorn）")
 
     step("校验转发脚本可执行")
     for name, _ in COMMANDS:
@@ -280,9 +284,9 @@ def print_path_hint() -> None:
 
 def main() -> int:
     _stdout_utf8()
-    ap = argparse.ArgumentParser(description="快速部署 nputr / nputweb 到本机")
+    ap = argparse.ArgumentParser(description="快速部署 nputr / nputweb / nputserve 到本机")
     ap.add_argument("--python", default=None, help="用来建 venv 的解释器（默认自动找 3.11）")
-    ap.add_argument("--model", default=None, help=f"直接指定模型 key（--list-models 查看）")
+    ap.add_argument("--model", default=None, help="直接指定模型 key（--list-models 查看）")
     ap.add_argument("--skip-model", action="store_true", help="跳过模型下载")
     ap.add_argument("--list-models", action="store_true", help="列出可用模型后退出")
     ap.add_argument("--no-deps", action="store_true", help="跳过依赖安装（只重建转发脚本）")

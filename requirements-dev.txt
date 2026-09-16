@@ -9,6 +9,11 @@ pytest-cov
 # 运行时不需要（nputweb 只用 fastapi / uvicorn / cryptography）。
 httpx
 
+# 测试里直接 `from click.testing import CliRunner`（test_benchmark.py / test_cli_exit.py）。
+# 项目用的 typer 0.27 只自带一份内部副本 typer._click，不暴露顶层 click 包，
+# 所以在全新 venv 里装完 dev 依赖仍然会 ModuleNotFoundError —— 这里显式补上。
+click
+
 # 可选：代码风格与类型检查
 ruff
 mypy

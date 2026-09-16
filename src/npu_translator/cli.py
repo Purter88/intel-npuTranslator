@@ -35,7 +35,7 @@ import typer
 
 from . import config as cfg
 from . import benchmark as bench
-from .device import DeviceManager, device_report, set_process_priority
+from .device import device_report, set_process_priority
 from .encoding import (
     DecodeError,
     InputTooLarge,
@@ -51,7 +51,7 @@ from .encoding import (
 )
 from .languages import LANGUAGES, common, is_supported, others
 from .orchestrate import OrchestrateConfig, Translator
-from .pool import FatalWorkerError, cpu_pipeline_props
+from .pool import cpu_pipeline_props
 from .segment import NEWLINE_MODES
 
 # ---------------------------------------------------------------- 退出码（SPEC.md · CLI 管道契约）

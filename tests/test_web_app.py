@@ -8,7 +8,6 @@ TestClient 的默认 Host 是 `testserver`，会被 HostPolicy 拒（正确的 D
 """
 from __future__ import annotations
 
-import asyncio
 import random
 import threading
 
