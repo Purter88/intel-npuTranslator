@@ -1,4 +1,4 @@
-"""nputweb 应用层单测：路由 / 中间件 / 启动策略。
+"""nputweb 应用层单测：路由 / 中间件 / 启动策略（SPEC.md · WebUI（nputweb））。
 
 用 `TestClient` 而不是真起服务 —— 秒级、不占端口、不加载模型。
 **不加载模型**这条要一直守着：把 NPU 30 s 的编译拖进单测，套件就没人愿意跑了。
@@ -75,7 +75,7 @@ def test_languages_returns_all_38():
 
 
 def test_zh_hant_exposes_chinese_prompt_name():
-    """zh-Hant 的 prompt 名必须是「繁体中文」，不是 Traditional Chinese（Prompt 与语言）。"""
+    """zh-Hant 的 prompt 名必须是「繁体中文」，不是 Traditional Chinese（SPEC.md · Prompt 与语言）。"""
     body = client(make_ctx()).get("/api/languages").json()
     hant = next(lang for lang in body["common"] if lang["code"] == "zh-Hant")
     assert hant["prompt_name"] == "繁体中文"
@@ -359,7 +359,7 @@ def test_context_shutdown_releases_executor():
 def test_importing_web_package_stays_lazy():
     """`import npu_translator.web` 不得拉起 OpenVINO / fastapi / cryptography。
 
-    理由见架构与目录结构：OpenVINO 初始化有百毫秒级开销且常驻占内存，
+    理由见 `SPEC.md · 架构与目录结构` —— OpenVINO 初始化有百毫秒级开销且常驻占内存，
     而这三个包都属于 optional dependencies.web —— 顶层 import 会让「没装 extra」的环境
     连一句安装提示都来不及说就崩。必须在**独立进程**里验证，同进程里谁先 import 都会污染结论。
     """
@@ -500,6 +500,82 @@ def test_exempt_set_contains_health_but_not_translate():
 
     assert "/api/health" in _EXEMPT_FROM_LIMITS
     assert "/api/translate" not in _EXEMPT_FROM_LIMITS, "翻译端点绝不能豁免限流"
+
+
+# ---------------------------------------------------------------- 参数化后默认值 = 旧行为（M3）
+def test_security_config_defaults_match_nputweb():
+    """★ 「nputweb 行为逐字不变」的机器保证，不靠人记。
+
+    M3 给 `SecurityConfig` 加了 8 个字段（为了 `nputserve` 复用同一份中间件栈）。
+    每加一个字段，这里的清单就要跟着多一行 —— 让"改了默认值"变成一个**有意识的动作**：
+    想改就得连这条断言一起改，而改断言会在 review 里显眼地出现。
+    """
+    sec = SecurityConfig()
+    assert sec.require_token is True
+    assert sec.max_input_chars == 5000
+    assert sec.timeout_s == 120.0
+    assert sec.queue_size == 8
+    assert sec.rate_per_min == 30
+    assert sec.debug is False
+    assert sec.https is False
+    assert sec.ssl_certfile == "" and sec.ssl_keyfile == ""
+
+    # ---- M3 新增 8 项，默认值必须让 nputweb 与改造前一模一样
+    assert sec.api_prefix == "/api/", "前缀变了 → 静态资源会被拉进四步检查"
+    assert sec.exempt_from_rate == frozenset({"/api/health"})
+    assert sec.exempt_from_queue == frozenset({"/api/health"})
+    assert sec.mount_static is True, "nputweb 必须继续挂静态面"
+    assert sec.static_dir is None
+    # 三个文档端点：路径必须等于改造前硬编码的那三个，且 openapi 仍受 debug gate
+    assert sec.docs_url == "/docs"
+    assert sec.redoc_url == "/redoc"
+    assert sec.openapi_url == "/openapi.json"
+    assert sec.openapi_requires_debug is True
+
+    # 两个豁免集合的**默认内容**都等于改造前那一个集合（行为不变）；
+    # 它们是**两个字段**而不是一个 —— 这点由 nputserve 的取值不同来证明
+    # （见 test_server_api.py::test_service_security_defaults_differ_...）
+    assert sec.exempt_from_rate == frozenset({"/api/health"})
+    assert sec.exempt_from_queue == frozenset({"/api/health"})
+
+
+def test_exempt_sets_can_be_replaced_per_instance():
+    """默认值不能用可变默认参数共享：改一个实例不该连坐另一个，也不该改到默认值。"""
+    a, b = SecurityConfig(), SecurityConfig()
+    a.exempt_from_rate = frozenset({"/api/other"})
+    assert b.exempt_from_rate == frozenset({"/api/health"})
+    assert SecurityConfig().exempt_from_rate == frozenset({"/api/health"})
+
+
+def test_exempt_decision_is_computed_before_the_four_steps():
+    """🔴 红线：豁免只能跳过第 2 步（限流）与第 4 步（队列）。
+
+    源码级闸门：中间件里绝不能出现「在 path 判定处提前 `await self.app(...); return`」
+    那种写法 —— 那样 Host 白名单与鉴权会一起丢掉。这里断言 `await self.app(`
+    只在前缀判定那一处出现（行为类断言见 `test_health_exemption_keeps_host_and_auth_checks`）。
+    """
+    import inspect
+
+    from npu_translator.web.app import SecurityMiddleware
+
+    src = inspect.getsource(SecurityMiddleware)
+
+    # ① 豁免判定必须出现在四步**之前**（源码里的先后 = 运行时的先后）
+    i_skip = src.index("skip_rate")
+    i_host = src.index("# ---- 1. Host 白名单")
+    i_rate = src.index("# ---- 2. 限流")
+    i_auth = src.index("# ---- 3. 鉴权")
+    i_queue = src.index("# ---- 4. 队列准入")
+    assert i_skip < i_host < i_rate < i_auth < i_queue, "四步的顺序或豁免的计算位置被改了"
+
+    # ② 只允许三处 `await self.app(...)`：非 http / 前缀之外 / 正常放行（带 finally）
+    assert src.count("await self.app(scope, receive, send)") == 3, (
+        "多出来的一处多半就是「在 path 判定处提前 return」那个坑"
+    )
+    # ③ 第 2 步与第 4 步各自只看自己的那个开关，第 1/3 步无条件执行
+    assert "if not skip_rate" in src and "if not skip_queue" in src
+    assert src.count("if not self.ctx.host_policy.allows(host)") == 1
+    assert src.count("if not self.ctx.token.accepts(token_hdr)") == 1
 
 
 # ---------------------------------------------------------------- 路径脱敏（S5）

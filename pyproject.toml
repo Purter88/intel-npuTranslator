@@ -19,20 +19,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# M3 的公开 /v1/* 用
-server = ["fastapi", "uvicorn[standard]"]
+# M3 的公开 /v1/* 用（nputserve）
+# cryptography 是**自签证书的唯一来源**：nputserve 是独立进程，不该依赖 [web] extra
+server = ["fastapi", "uvicorn[standard]", "cryptography"]
 # nputweb（WebUI）：与主依赖解耦，装不到也不影响 nputr
 # cryptography 是自签证书的**唯一**来源：Windows 没有自带 openssl 命令，
-# 见「WebUI（nputweb）」
+# 见 SPEC.md · WebUI（nputweb）
 web = ["fastapi", "uvicorn[standard]", "cryptography"]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "httpx"]
 
 [project.scripts]
-# 短名优先（管道友好，见「CLI 管道契约」），保留长名兼容
+# 短名优先（管道友好，见 SPEC.md · CLI 管道契约），保留长名兼容
 nputr = "npu_translator.cli:main_entry"
 npu-translate = "npu_translator.cli:main_entry"
-# WebUI：独立命令，与 nputr 并列（WebUI（nputweb））
+# WebUI：独立命令，与 nputr 并列（SPEC.md · WebUI（nputweb））
 nputweb = "npu_translator.web.cli:main_entry"
+# 服务：只挂 /v1/*，独立进程 / 独立端口 / 独立 token（SPEC.md · WebUI（nputweb））
+nputserve = "npu_translator.server:main_entry"
 
 [tool.setuptools.packages.find]
 where = ["src"]
