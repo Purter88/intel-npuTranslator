@@ -7,7 +7,7 @@
 | | |
 |---|---|
 | 当前状态 | M0 / M1 / M2 ✅ · **nputweb（Web 界面）✅** · **快速部署 ✅** · **M3 `/v1/*` 服务 ✅**（功耗实测、长文本端到端未做）· M4 ⬜ |
-| 实测吞吐 | NPU **32.4 tok/s** · CPU **46–54 tok/s** · 单测 **300 项**全过 |
+| 实测吞吐 | NPU **32.4 tok/s** · CPU **46–54 tok/s** · 单测 **406 项**全过 |
 | 主要平台 | Windows 11 + Intel Core Ultra（NPU4） |
 | 授权 | **MIT** |
 
@@ -664,7 +664,7 @@ PowerShell 5.1 的 `>` / `>>` 会产出 **UTF-16LE**。用 `nputr -o out.txt` �
 ## 开发
 
 ```powershell
-pytest tests/ -q                                    # 单元测试 300 项（不含模型，秒级）
+pytest tests/ -q                                    # 单元测试 406 项（不含模型，秒级）
 .\.venv\Scripts\python.exe scripts\smoke_test.py --device NPU   # 冒烟：5 语种 × 3 句
 .\.venv\Scripts\python.exe scripts\bench.py --all               # 三设备基准
 .\.venv\Scripts\python.exe scripts\bench_hetero.py              # 异构并行基准 + 线程扫描
