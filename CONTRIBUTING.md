@@ -27,13 +27,10 @@ python scripts\build.py --skip-model    # 非交互，跳过模型
 python scripts\build.py --list-models   # 看可选模型
 ```
 
-它做四件事：**建 venv → 装依赖 → 选模型 → 生成 `nputr` / `nputweb` 两个命令转发脚本**。
+它做四件事：**建 venv → 装依赖 → 选模型 → 生成 `nputr` / `nputweb` / `nputserve` 三个命令转发脚本**。
 
-- ⚠️ **第三个命令 `nputserve` 不在 `bin\` 里。** `scripts/build.py` 只导出 `nputr` / `nputweb`
-  两个转发脚本（见该文件头第 1 条约定），`nputserve` 只由 `pyproject.toml` 的 console script 提供，
-  装完后在 `.venv\Scripts\nputserve.exe`。要用它，把 `.venv\Scripts` 也加进 PATH，
-  或者直接 `.\.venv\Scripts\python.exe -m npu_translator.server`。
-  它默认 **8766**（`nputweb` 是 8765）—— 两个命令**会**同时起，故意错开。
+- 三个命令里两个带服务：`nputweb` 默认 **8765**、`nputserve` 默认 **8766** ——
+  两者**会**同时起，故意错开一个端口，否则第二个启动会撞车失败。
 - 🔴 **它不碰系统 PATH**（也不碰注册表，不需要管理员）。跑完会打印一个目录，你自己加进 PATH。
 - 加 PATH 请用 `[Environment]::SetEnvironmentVariable(...)`，**不要用 `setx`** ——
   `setx` 会把 `%USERPROFILE%` 这类变量展平成死字符串，还有 1024 字符截断。细节见 `README.md`。

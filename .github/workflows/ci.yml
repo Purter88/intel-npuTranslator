@@ -102,13 +102,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
-    # ⚠️ 现状是**非阻塞**的：仓库当前在这套规则下有 19 处告警
-    #    （绝大多数是 `__init__.py` 里惰性导出造成的 F401 误报，另有 1 处真的 F821）。
-    #    挂着 continue-on-error 是为了让信号**先出现**：红灯能看见，但不会拦住 PR。
-    #    清完之后请把这两行删掉 —— 那时它就该是阻塞的。
+    # ⚠️ 现状是**非阻塞**的，而且是**有意**的 —— 改之前先读完这段。
     #
-    #    🔴 刻意**没有**为了变绿而给它们加 `# noqa`：
-    #       那 1 处 F821（Undefined name）是真的 bug，加 noqa 等于把它埋起来。
+    # `ruff check --select F .` 当前稳定输出 **17 条 F401**（imported but unused）。
+    # 它们不是一类东西，却共用同一个规则码，混在一起看就会得出错误结论：
+    #
+    #   1. **11 条在 `src/npu_translator/web/__init__.py` 的 `if TYPE_CHECKING:` 块里**
+    #      （create_app / TokenChecker / host_allows / is_loopback / RateLimiter /
+    #      SlidingWindow / build_router / TlsMode / cert_fingerprint /
+    #      ensure_self_signed / resolve_tls）—— 这是**假阳性**。
+    #      它们不是"忘了删"，而是惰性重导出的**类型侧声明**：运行时由 `_LAZY` 字典
+    #      + `__getattr__` 分发，TYPE_CHECKING 块只负责让类型检查器与
+    #      `from npu_translator.web import create_app` 认得到这些名字。
+    #      它是惰性导入硬约束（CONTRIBUTING.md §3.1）的直接产物，**删掉就破了惰性**。
+    #
+    #   2. **6 条是真的未使用导入**：`scripts/bench_hetero.py:29`、
+    #      `src/npu_translator/cli.py:38` 与 `:54`、`tests/test_benchmark.py:11`、
+    #      `tests/test_web_app.py:11`、`tests/test_web_security.py:11`。
+    #      这几条**应该清掉**，ruff 标了 `[*]`，`--fix` 能直接删，零风险。
+    #
+    # 为什么**不**给第 1 类逐行加 `# noqa: F401` 了事：
+    #   那要污染 11 行源码；更要紧的是，加了之后第 1 类和第 2 类就再也分不开 ——
+    #   下次有人引入真的未使用导入，它会安静地躺在一片 noqa 里，而 noqa 的语义本来
+    #   就是"别再报我"。那是换一种方式把问题盖住，跟放宽断言没有区别。
+    #
+    # 收敛路径（走完就把下面的 continue-on-error 删掉，让它变阻塞）：
+    #   a. 清掉第 2 类那 6 条（`ruff check --select F --fix` 即可，纯删除）；
+    #   b. 第 1 类改用**配置**表达，而不是 11 行行尾注释 —— 在 `pyproject.toml` 里
+    #      加 `[tool.ruff.lint.per-file-ignores]` 把 F401 对
+    #      `src/npu_translator/web/__init__.py` 豁免，并在那里写清理由。
+    #      "这是有意设计"应该落在配置里，而不是散落在源码行尾；
+    #   c. 归零之后删掉 continue-on-error，lint 变成硬门禁。
+    #
+    # 🔴 反过来也别为了让这一格变绿去改断言或放宽规则 —— 见文件头第 23 行。
     continue-on-error: true
 
     steps:
@@ -127,6 +153,8 @@ jobs:
         # 只跑 Pyflakes（F）：未定义名、未使用的 import、重复定义这类**真错误**。
         # 不跑 E/I/S/UP 等风格与 Opinionated 规则 —— 那几十项属于"将来要不要统一"的口味问题，
         # 现在全开只会把真正的错误淹没在噪音里。
+        # ⚠️ 这一格**常态是红的**（17 条 F401，绝大多数是 `web/__init__.py` 惰性重导出的假阳性），
+        #    原因与收敛路径见本 job 顶部的说明 —— 别只看到红灯就去加 noqa。
         run: ruff check --select F --no-cache .
 
   # ---------------------------------------------------------------------------
