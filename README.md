@@ -187,6 +187,7 @@ nputweb                                  # 默认 https://127.0.0.1:8765，自�
 nputweb --port 9000                      # 换端口
 nputweb --host 0.0.0.0                   # 允许局域网访问（自动生成 token 并打印）
 nputweb --tls off                        # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
+nputweb --host 0.0.0.0 --tls off --no-auth --allow-no-auth   # 测试 / 可信局域网：明文 + 无鉴权
 nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 ```
 
@@ -194,6 +195,8 @@ nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 
 > 理念 **安全性 > 稳定性 > 效率**：非回环绑定或启用 TLS 一律强制 token；
 > 「非回环 + 明文」默认**拒绝启动**（退出码 3）。详见 `SPEC.md · WebUI（nputweb）`。
+> 测试 / 可信局域网想一次解开这三条硬拦，加 `--allow-no-auth`（全部降级为警告；
+> 它**不**自动关鉴权——`--no-auth` 才是「我要关」的意思）。
 
 ### nputweb 的环境变量
 
@@ -206,6 +209,7 @@ nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 | `NPT_WEB_TOKEN` | 自动生成 | 不指定则随机生成并打印一次 |
 | `NPT_WEB_NO_AUTH` | off | 关闭鉴权（仅回环地址允许） |
 | `NPT_WEB_ALLOW_INSECURE` | off | 放行「非回环 + 明文」 |
+| `NPT_WEB_ALLOW_NO_AUTH` | off | 逃生舱：非回环下允许 `--no-auth`，同时放行明文与弱 token |
 | `NPT_WEB_OPEN` | on | 设 `0` 不自动开浏览器 |
 | `NPT_WEB_MAX_INPUT_CHARS` | `5000` | 单次输入字符上限（超出 413） |
 | `NPT_WEB_TIMEOUT` | `120` | 单请求超时秒数（超时 504） |
@@ -227,6 +231,7 @@ nputserve                                    # 默认 https://127.0.0.1:8766
 nputserve --port 9001                        # 换端口
 nputserve --host 0.0.0.0                     # 允许局域网访问（自动生成 token 并打印）
 nputserve --tls off                          # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
+nputserve --host 0.0.0.0 --tls off --no-auth --allow-no-auth  # 测试 / 可信局域网：明文 + 无鉴权
 nputserve --debug                            # 开 /docs /redoc 与 access log
 ```
 
@@ -251,7 +256,7 @@ curl.exe -k https://127.0.0.1:8766/v1/translate -H "Authorization: Bearer <token
 > ⚠️ PowerShell 5.1 的 `curl` 是 `Invoke-WebRequest` 的别名，所以上面写的是 `curl.exe`。
 
 与 `nputweb` 是**两个独立进程**：各自独立端口、独立 token、独立限流桶，崩一个不影响另一个。
-安全策略（非回环强制 token、「非回环 + 明文」默认拒绝启动）与 nputweb 一致，
+安全策略（非回环强制 token、「非回环 + 明文」默认拒绝启动、`--allow-no-auth` 逃生舱）与 nputweb 一致，
 详见 `SPEC.md · WebUI（nputweb）`。
 
 ### nputserve 的环境变量
@@ -265,6 +270,7 @@ curl.exe -k https://127.0.0.1:8766/v1/translate -H "Authorization: Bearer <token
 | `NPT_SERVE_TOKEN` | 自动生成 | 不指定则随机生成并打印一次 |
 | `NPT_SERVE_NO_AUTH` | off | 关闭鉴权（仅回环地址允许） |
 | `NPT_SERVE_ALLOW_INSECURE` | off | 放行「非回环 + 明文」 |
+| `NPT_SERVE_ALLOW_NO_AUTH` | off | 逃生舱：非回环下允许 `--no-auth`，同时放行明文与弱 token |
 | `NPT_SERVE_DEBUG` | off | 开 `/docs` / `/redoc` 与 access log |
 
 命令行参数优先级高于环境变量。

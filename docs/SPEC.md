@@ -634,6 +634,7 @@ GenAI 路径拿不到真 decode 计数（`TranslateEngine.tokens` 本身就是 `
 | 默认绑定 / 端口 | `127.0.0.1:8765`（`NPT_WEB_HOST` / `NPT_WEB_PORT`）；**非回环 → 强制 token** |
 | TLS 三态 | `--tls auto`（默认，自签）/ `on`（`--cert` + `--key` 必填，缺一 → 码 2）/ `off`（明文） |
 | 明文限制 | 非回环 + 明文 → **拒绝启动**（退出码 3），除非再加 `--allow-insecure` |
+| 逃生舱 | `--allow-no-auth`：非回环下同时放行「无鉴权 / 明文 / 弱 token」，三条硬拦**降级为警告**（测试 / 可信局域网用）；它**不**自动关鉴权 —— `--no-auth` 仍是唯一意图表达 |
 | 认证 | 非回环 **或** 启用 TLS → 强制 token；回环明文可免。校验用 `hmac.compare_digest`（常量时间） |
 | 前端 | **纯静态 HTML + 原生 JS/CSS**，无框架 / 无构建 / 无 CDN（venv 无 jinja2，且离线优先） |
 | 依赖 | 运行时**零新增**（fastapi / uvicorn / cryptography 已声明为可选依赖）；**dev 需补 httpx**（`TestClient` 依赖） |
@@ -838,6 +839,7 @@ event: error   data: {"code","message","abandoned"}
 - **D6**：非回环绑定 **或** 启用 TLS → **强制 token**；纯回环明文可免
 - **D7**：非回环 + 明文 → **拒绝启动**（退出码 3），除非再加 `--allow-insecure`
 - **D11**：对**最终生效的** token 无条件校验，与来源无关；弱 token + 非回环 → 拒绝启动（码 2），回环 → 警告放行
+- **逃生舱**：`--allow-no-auth` 把上面三条在**非回环**下的「拒绝启动」一律降级为警告；它**不**等于 `--no-auth` —— 只给逃生舱时 token 照旧强制
 - **Host 白名单**：`localhost` / `127.0.0.1` / 显式指定的 host，否则 400 `bad_host`
 - **token 走 `Authorization: Bearer`**（不用 cookie → 天然免 CSRF）
 - **限流不认 `X-Forwarded-For`**（按真实对端 IP 计，避免伪造头绕过）
@@ -858,12 +860,12 @@ event: error   data: {"code","message","abandoned"}
 ### 10.10 CLI 与环境变量
 
 命令行：`nputserve [--host] [--port] [--tls auto|on|off] [--cert] [--key] [--token] [--no-auth]
-[--allow-insecure] [--device] [--newline] [--max-input-chars] [--timeout] [--queue-size] [--rate]
+[--allow-insecure] [--allow-no-auth] [--device] [--newline] [--max-input-chars] [--timeout] [--queue-size] [--rate]
 [--max-streams] [--lane-wait] [--max-stream-chars] [--debug] [--no-warmup] [--version]`
 
 环境变量（作为**默认值**，命令行显式给值则覆盖）：`NPT_SERVE_HOST` / `NPT_SERVE_PORT` /
 `NPT_SERVE_TLS` / `NPT_SERVE_CERT` / `NPT_SERVE_KEY` / `NPT_SERVE_TOKEN` / `NPT_SERVE_NO_AUTH` /
-`NPT_SERVE_ALLOW_INSECURE` / `NPT_SERVE_MAX_INPUT_CHARS` / `NPT_SERVE_TIMEOUT` / `NPT_SERVE_QUEUE` /
+`NPT_SERVE_ALLOW_INSECURE` / `NPT_SERVE_ALLOW_NO_AUTH` / `NPT_SERVE_MAX_INPUT_CHARS` / `NPT_SERVE_TIMEOUT` / `NPT_SERVE_QUEUE` /
 `NPT_SERVE_RATE` / `NPT_SERVE_DEBUG` / `NPT_SERVE_MAX_STREAMS` / `NPT_SERVE_LANE_WAIT` /
 `NPT_SERVE_MAX_STREAM_CHARS`；另沿用全局的 `NPT_DEVICE` / `NPT_MODEL`。
 
@@ -1230,6 +1232,7 @@ NPU 解码慢（实测 32.4 tok/s，远超 8 目标）· 编译时间长（缓�
 
 裸敲 `nputweb` 一键启动 · 非回环绑定自动生成并打印 token · `--host 0.0.0.0 --tls off` 拒绝启动（码 3）·
 加 `--allow-insecure` 放行且仍强制 token · `--tls on` 只给 `--cert` 退 2 · 自有证书指纹按自有证书计算 ·
+`--host 0.0.0.0 --no-auth --allow-no-auth` 下明文无鉴权也能起来且横幅红字告警 ·
 `NPT_WEB_*` 与命令行等价 · 无 token 401 · 伪造 `Host` 400 · 9000 字符 413 · 超阈值 429 + `Retry-After` ·
 队列打满 503 · 冷启动 health 由 `loading` → `ready` · 真机翻译出正确英文 · `zh-Hant` 出繁体 ·
 下载 `.txt` 由前端 Blob 生成（服务端无写文件）· `/docs` `/openapi.json` 404 · Ctrl+C 进程退出端口释放 ·
