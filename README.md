@@ -185,14 +185,16 @@ nputr --devices
 ```powershell
 nputweb                                  # 默认 https://127.0.0.1:8765，自动开浏览器
 nputweb --port 9000                      # 换端口
-nputweb --host 0.0.0.0                   # 允许局域网访问（自动生成 token 并打印）
+nputweb --host 0.0.0.0                   # 全部网卡（自动生成 token 并打印）
+nputweb --host 192.168.1.5,127.0.0.1     # 只绑这两个地址（逗号分隔，可多个）
 nputweb --tls off                        # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
 nputweb --allow-host myhost.example      # 允许按这个名字访问（可重复给；不这样就 400）
 nputweb --host 0.0.0.0 --tls off --no-auth --allow-no-auth   # 测试 / 可信局域网：明文 + 无鉴权
 nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 ```
 
-启动后会打印：本地/局域网地址、证书指纹（请与首次核对，防中间人）、设备与回退链。
+启动后会打印：**本地 + 网络**地址（能连上的都列出来，虚拟网卡与隧道默认折叠，
+`--show-all-addresses` 展开）、证书指纹（请与首次核对，防中间人）、设备与回退链。
 
 > 理念 **安全性 > 稳定性 > 效率**：非回环绑定或启用 TLS 一律强制 token；
 > 「非回环 + 明文」默认**拒绝启动**（退出码 3）。详见 `SPEC.md · WebUI（nputweb）`。
@@ -203,7 +205,8 @@ nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `NPT_WEB_HOST` | `127.0.0.1` | 非回环会强制 token |
+| `NPT_WEB_HOST` | `127.0.0.1` | 逗号分隔可绑多个；任一个非回环就强制 token |
+| `NPT_WEB_SHOW_ALL_ADDRESSES` | off | 横幅展开虚拟网卡与点对点地址（默认折叠） |
 | `NPT_WEB_PORT` | `8765` | 被占用直接报错（不会悄悄换端口） |
 | `NPT_WEB_TLS` | `auto` | `auto` 自签 / `on` 自带证书 / `off` 明文 |
 | `NPT_WEB_CERT` / `NPT_WEB_KEY` | — | `--tls on` 时用 |
@@ -231,7 +234,8 @@ nputweb --tls on --cert my.pem --key my.key   # 用你自己的证书
 ```powershell
 nputserve                                    # 默认 https://127.0.0.1:8766
 nputserve --port 9001                        # 换端口
-nputserve --host 0.0.0.0                     # 允许局域网访问（自动生成 token 并打印）
+nputserve --host 0.0.0.0                     # 全部网卡（自动生成 token 并打印）
+nputserve --host 192.168.1.5,127.0.0.1       # 只绑这两个地址（逗号分隔，可多个）
 nputserve --tls off                          # 明文（仅回环地址可用，跨机需再加 --allow-insecure）
 nputserve --host 0.0.0.0 --tls off --no-auth --allow-no-auth  # 测试 / 可信局域网：明文 + 无鉴权
 nputserve --debug                            # 开 /docs /redoc 与 access log
@@ -270,7 +274,8 @@ curl.exe -k https://127.0.0.1:8766/v1/translate -H "Authorization: Bearer <token
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `NPT_SERVE_HOST` | `127.0.0.1` | 非回环会强制 token |
+| `NPT_SERVE_HOST` | `127.0.0.1` | 逗号分隔可绑多个；任一个非回环就强制 token |
+| `NPT_SERVE_SHOW_ALL_ADDRESSES` | off | 横幅展开虚拟网卡与点对点地址（默认折叠） |
 | `NPT_SERVE_PORT` | `8766` | 与 nputweb 的 8765 错开；被占用直接报错 |
 | `NPT_SERVE_TLS` | `auto` | `auto` 自签 / `on` 自带证书 / `off` 明文 |
 | `NPT_SERVE_CERT` / `NPT_SERVE_KEY` | — | `--tls on` 时用 |

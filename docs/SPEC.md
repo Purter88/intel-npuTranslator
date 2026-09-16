@@ -631,7 +631,7 @@ GenAI 路径拿不到真 decode 计数（`TranslateEngine.tokens` 本身就是 `
 
 | 项 | 决策 |
 |---|---|
-| 默认绑定 / 端口 | `127.0.0.1:8765`（`NPT_WEB_HOST` / `NPT_WEB_PORT`）；**非回环 → 强制 token** |
+| 默认绑定 / 端口 | `127.0.0.1:8765`（`NPT_WEB_HOST` / `NPT_WEB_PORT`）；逗号分隔可绑多个；**任一个非回环 → 强制 token**（见 9.8） |
 | TLS 三态 | `--tls auto`（默认，自签）/ `on`（`--cert` + `--key` 必填，缺一 → 码 2）/ `off`（明文） |
 | 明文限制 | 非回环 + 明文 → **拒绝启动**（退出码 3），除非再加 `--allow-insecure` |
 | 逃生舱 | `--allow-no-auth`：非回环下同时放行「无鉴权 / 明文 / 弱 token」，三条硬拦**降级为警告**（测试 / 可信局域网用）；它**不**自动关鉴权 —— `--no-auth` 仍是唯一意图表达 |
@@ -661,7 +661,9 @@ GenAI 路径拿不到真 decode 计数（`TranslateEngine.tokens` 本身就是 `
 8. **静态目录最后挂载**，否则会吞掉 `/api/*`。
 9. **错误体统一** `{"error": {...}}`，**不回传 traceback**（会泄漏绝对路径，违反「Git 约定：本机绝对路径禁止入库」）。
 10. **`import npu_translator.web` 不得拉起 OpenVINO**（也不得拉起 fastapi / uvicorn / cryptography）；缺依赖给友好提示而非裸 `ImportError`。
-11. `--host 0.0.0.0` 时启动横幅必须**解析并打印具体局域网 IP**，别把 `0.0.0.0` 直接丢给用户。
+11. `--host 0.0.0.0` 时启动横幅必须**解析并打印具体地址**，别把 `0.0.0.0` 直接丢给用户。
+    2026-09-17 更进一步：打印的是「bind 集合 ∩ 本机地址」的**全部**项（见 9.8）——
+    只挑一个是猜，而猜错的那一次用户会把连不上的地址发给同事。
 12. **`/api/health` 豁免限流与队列，但**不**豁免 Host 白名单与鉴权**。
     豁免只跳过中间件四步里的第 2 步（限流）与第 4 步（队列准入）。
     🔴 **绝不能**写成在 `path.startswith("/api/")` 处提前 `await self.app(...); return` ——
@@ -746,6 +748,77 @@ CSP `default-src 'self'` · `X-Frame-Options: DENY` · `X-Content-Type-Options: 
 > 公网域名 + Let's Encrypt 这条路也跑得通（`--tls on --cert --key` 早已支持），
 > 但那要引入 DNS API token 与 90 天续期，与「完全离线、完全本机」的定位置换不来。
 
+
+### 9.8 多地址绑定与启动横幅（2026-09-17）
+
+**用法**：`--host a.a.a.a,b.b.b.b`（逗号分隔）；环境变量 `NPT_WEB_HOST` 同样吃逗号串。
+`nputserve` 同义（`NPT_SERVE_HOST`）。
+
+一个开关喂**三处**，少喂一处都是一个静默的洞：
+
+| 生效点 | 代码 | 漏了会怎样 |
+|---|---|---|
+| 真正 bind + 端口冲突检测 | `bind_listeners()` | 那个地址根本不通，报错还是 uvicorn 的英文 traceback |
+| Host 白名单 | `HostPolicy.build()` | 从第二个地址访问 → 400 `bad_host`，而排查方向指向「Host 头不对」 |
+| 自签证书 SAN | `resolve_tls(bind_host=...)` | 浏览器 `ERR_CERT_COMMON_NAME_INVALID`（只补前两处 = 把一道看不懂的错换成另一道） |
+
+**安全门取并集**：`has_non_loopback()` 判「**任一**非回环」。暴露面是并集不是交集 ——
+取 first 会让 `--host 127.0.0.1,192.168.1.5` 被当成纯回环：不强制 token、不禁明文、不禁弱 token。
+这是本次改动里唯一能造成真实事故的一条语义。
+
+**实现要点**
+
+- uvicorn 的 `Config` 只认一个 host → 用 `Server.serve(sockets=[...])`：
+  逐个 `loop.create_server(sock=...)`，**一个 lifespan、一个 app、N 个 listener**。
+  起 N 个 `uvicorn.Server` 是错的：lifespan 跑 N 次，模型加载 N 遍。
+- `--port 0` 时所有 socket 复用第一个拿到的端口号。各自 bind 会拿到 N 个不同端口 ——
+  那不是「一个服务监听多个地址」，是 N 个互不相干的服务。
+- Windows 用 `SO_EXCLUSIVEADDRUSE`，POSIX 用 `SO_REUSEADDR`。实测依据：两个都设了
+  `SO_REUSEADDR` 的 socket 在 Windows 上**可以** bind 到同一个 `addr:port`，
+  旧的「先探测再绑」根本测不出冲突，真撞车时变成两个进程静默共存、请求随机分流。
+  顺带：bind 与探测合并成一步也消掉了 TOCTOU。
+- 地址族按 host 选（`":" in host` → `AF_INET6`）。旧实现硬编码 `AF_INET`，
+  `--host ::1` 会抛 `gaierror: getaddrinfo failed` 并被误报成「端口已被占用」。
+
+**横幅**：只打印 `bind 集合 ∩ 本机地址` —— **连不上的地址不算可访问地址**。
+标签叫「网络」不叫「局域网」：本机地址横跨 WLAN / VMware / WSL / Hyper-V / VPN 隧道，
+统称局域网不准确。（**警告文案里保留「局域网 / 同一网段」**：那里要的是「同一广播域的其它设备」
+这个精确含义，换成「网络」会被读成互联网，反而稀释警告。）
+折叠规则：虚拟网卡与点对点（前缀 ≥ /30 或 /126）默认折成一行计数，`--show-all-addresses` 展开。
+
+> 实测（本机，2026-09-17）：12 个 IPv4 分布在 11 张网卡 → 6 个在**已启用**网卡上 →
+> 去掉回环与 `169.254/16` 剩 5 个 → **适合分享的只有 1 个**（WLAN `192.168.1.x/24`），
+> 其余是 VMware ×2、vEthernet ×2、以及一条 `/30` 隧道。
+> 旧实现的 `_primary_ip()`（UDP connect 骗路由表）在这台机器上返回的正是那条 `/30` 隧道地址
+> —— 也就是说**横幅一直在给用户一个别人连不上的地址**。「出网」和「可被访问」是两件事。
+
+**注意**：绑定具体地址只是**收窄暴露面**，不是访问控制。Host 头可以随便伪造
+（`curl -H "Host: 任意"`），唯一能当门的是 token。真要隔离某张网卡，正解是防火墙规则。
+
+### 9.9 `Sec-Fetch-Site`：只挡浏览器的跨站请求（2026-09-17）
+
+中间件**第 0 步**（在 Host 白名单之前，且**不受 `api_prefix` 早退影响**）：
+`Sec-Fetch-Site: cross-site` → 403 `cross_site`。
+
+**它为什么是 rebinding 的有效指纹**：这个头由**浏览器强制写**，页面里的 JS 既改不了也删不掉。
+它说的是「这次请求是谁发起的」，而 Host 头说的是「请求方自称是谁」—— 后者可以随便编。
+两条防线判据不同，所以都要有：Host 白名单是「猜名字」，这个是「浏览器自证来源」。
+
+**没有这个头就放行**：`curl` 与所有程序化调用都不带它，那是 `nputserve` 的正常用法。
+这道防线只对浏览器生效 —— 而 rebinding 只可能来自浏览器，正好。
+
+只挡 `cross-site` 一个值：
+
+- `same-origin`（页面自己的 XHR）与 `none`（地址栏直达 / 书签 / 邮件点开）必须放行，
+  挡了等于把自己关在门外。
+- `same-site` 也不挡：按 Fetch 规范，对 IP 地址与不可注册域名，「same site」要求 host
+  **完全相等**，它并不比 `same-origin` 宽。
+
+**副作用其实是收益**：跨站 `<iframe>` 嵌套一起被挡（防点击劫持）。
+唯一会挡到的正常场景是「从别的站点的链接点进来」，那种情况下在地址栏重开即可。
+
+开关：`SecurityConfig.block_cross_site`（默认 `True`）。
+
 ---
 
 ## 10. 服务（nputserve）/v1 API 契约
@@ -765,7 +838,7 @@ CSP `default-src 'self'` · `X-Frame-Options: DENY` · `X-Content-Type-Options: 
 
 **复用了什么（不重写）**：安全中间件栈与 app 工厂（`web.app.create_app`）、鉴权与强度判定（`web.auth`）、
 限流 / 队列（`web.limits`）、证书三态（`web.tls`）、路径脱敏与断开判定（`web.routes`）、
-绑定判定与退出码（`web.cli.resolve_binding` / `check_port_free`）、**编排（`orchestrate.Translator`）**。
+绑定判定与退出码（`web.cli.resolve_binding` / `bind_listeners`）、**编排（`orchestrate.Translator`）**。
 
 ### 10.2 端点总表
 
