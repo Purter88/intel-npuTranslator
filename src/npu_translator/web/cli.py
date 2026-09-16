@@ -12,10 +12,21 @@
 | 启用了 TLS | **强制 token**（自签证书只防嗅探，不防冒充） |
 | 非回环 + 明文 | **拒绝启动**（退出码 3），除非显式 `--allow-insecure` |
 | 非回环 + 弱 token | **拒绝启动**（退出码 2），见 D11 |
+| 上面三条 + `--allow-no-auth` | 一律**降级为警告**放行（测试 / 可信局域网逃生舱） |
 
 第 3 条是本项目最现实的事故：手滑把明文服务开到局域网。宁可让用户多敲一个参数。
 第 4 条是同一个事故的弱口令版本：`--token 1234` 绑到局域网，等于给整层楼发 PIN。
 回环场景一律只警告不拦 —— 那儿的攻击者得先能在本机跑代码。
+
+## 逃生舱 `--allow-no-auth`
+
+联调 / 压测 / 家庭可信局域网下，上面三条硬拦每一次都要多敲一个参数，很烦，
+于是给一枚**一把全解**的开关：加了它，非回环下的三道闸全部从「拒绝启动」降级为「警告」。
+
+- 它**不**自动关鉴权：`--no-auth` 仍然是「我要关鉴权」这个意图的唯一表达方式。
+  只给 `--allow-no-auth` 得到的是「网络可信，但 token 照旧」—— 这本身就是个合理组合。
+- 全解是用户**显式选的**（就是要最省事的那一档），所以横幅与 stderr 都必须红字写清
+  当前是什么姿态：宁可啰嗦，也不能让人在不知情的状态下开着无鉴权的服务。
 
 ## 退出路径为什么和 CLI 相反
 
@@ -71,6 +82,7 @@ class Options:
     token: Optional[str] = None
     no_auth: bool = False
     allow_insecure: bool = False
+    allow_no_auth: bool = False
     open_browser: bool = True
     device: str = cfg.DEVICE
     newline: str = "soft"
@@ -112,6 +124,7 @@ def options_from_env() -> Options:
         token=os.getenv("NPT_WEB_TOKEN") or None,
         no_auth=_bool("NPT_WEB_NO_AUTH", False),
         allow_insecure=_bool("NPT_WEB_ALLOW_INSECURE", False),
+        allow_no_auth=_bool("NPT_WEB_ALLOW_NO_AUTH", False),
         # NPT_WEB_OPEN=0 表示不自动开浏览器
         open_browser=_bool("NPT_WEB_OPEN", True),
         device=_env_str("NPT_DEVICE", cfg.DEVICE),
@@ -125,7 +138,11 @@ def options_from_env() -> Options:
 
 # ---------------------------------------------------------------- 校验与解析
 def resolve_binding(opts: Options) -> tuple[str, TokenChecker, bool]:
-    """按 D6 / D7 把「绑定地址 + TLS + 认证」这条三角关系定下来。
+    """按 D6 / D7 / D11 把「绑定地址 + TLS + 认证」这条三角关系定下来。
+
+    `--allow-no-auth` 是唯一能同时解开三道闸的开关（测试 / 可信局域网逃生舱）：
+    它把「拒绝启动」降级为「警告」，但**不**替用户表达 `--no-auth` 这个意图 ——
+    只给逃生舱而没给 `--no-auth`，拿到的仍是「网络可信，token 照旧」。
 
     :return: (scheme, TokenChecker, 是否已启用 TLS)
     """
@@ -138,22 +155,46 @@ def resolve_binding(opts: Options) -> tuple[str, TokenChecker, bool]:
         raise SystemExit(f"参数错误: {exc}") from exc
     tls_enabled = mode is not TlsMode.OFF
 
-    # ---- D7：非回环 + 明文 → 拒绝启动（除非显式放行）
-    if not is_loopback(opts.host) and not tls_enabled and not opts.allow_insecure:
+    loopback = is_loopback(opts.host)
+    # ---- 逃生舱：`--allow-no-auth` = 「这段网络我负责」。
+    # 用 getattr 取值：nputserve 的 Options 是同名同义的另一个 dataclass（鸭子类型传参），
+    # 万一调用方还没这个字段，按 False 处理而不是 AttributeError。
+    trusted = bool(getattr(opts, "allow_no_auth", False))
+    if trusted and not loopback:
+        typer.secho(
+            "⚠️ 已启用 --allow-no-auth：非回环下的「强制 token / 拒绝明文 / 拒绝弱 token」"
+            "三道闸全部降级为警告。\n"
+            "  只用于测试或你确实信任的局域网 —— 同一网段里任何人都能直接用你的 NPU。",
+            err=True, fg=typer.colors.YELLOW,
+        )
+
+    # ---- D7：非回环 + 明文 → 拒绝启动（除非显式放行，或逃生舱已开）
+    if not loopback and not tls_enabled and not opts.allow_insecure and not trusted:
         typer.secho(
             "拒绝启动：把明文 HTTP 绑到非回环地址会把翻译服务暴露给整个局域网。\n"
-            "  要么 --tls auto/on（推荐），要么确认风险后加 --allow-insecure。",
+            "  要么 --tls auto/on（推荐），要么确认风险后加 --allow-insecure，\n"
+            "  要么加 --allow-no-auth 一次性解除这条与另外两条硬拦。",
             err=True, fg=typer.colors.RED,
         )
         raise typer.Exit(code=EXIT_STARTUP)
 
     # ---- D6：非回环或启用 TLS → 强制 token
-    must_auth = (not is_loopback(opts.host)) or tls_enabled
-    if must_auth and opts.no_auth and not is_loopback(opts.host):
-        typer.secho("参数错误: 非回环绑定不允许 --no-auth", err=True, fg=typer.colors.RED)
+    # ★ `--no-auth` 是显式意图，**无条件尊重**：旧实现的判据是 `no_auth and not must_auth`，
+    #   于是「回环 + 启 TLS + --no-auth」会落到 else 分支自动发一枚 token，
+    #   把用户的 --no-auth 静默吞掉 —— 而 `--tls auto` 是默认值，等于 --no-auth 从来没生效过
+    #   （2026-09-16 实测：`Options(host="127.0.0.1", tls="auto", no_auth=True)` →
+    #   checker.enabled = True）。回环的威胁模型里 TLS 只防嗅探、不防本机浏览器发请求，
+    #   鉴权开不开不该由它决定。
+    must_auth = (not loopback) or tls_enabled
+    if must_auth and opts.no_auth and not loopback and not trusted:
+        typer.secho(
+            "参数错误: 非回环绑定不允许 --no-auth。\n"
+            "  确认这台机器所在的网段可信，请加 --allow-no-auth。",
+            err=True, fg=typer.colors.RED,
+        )
         raise typer.Exit(code=EXIT_USAGE)
 
-    if opts.no_auth and not must_auth:
+    if opts.no_auth:
         checker = TokenChecker(None)
     else:
         given = opts.token or None
@@ -173,10 +214,13 @@ def resolve_binding(opts: Options) -> tuple[str, TokenChecker, bool]:
     #      **根本不会被使用**的 token。现在 `checker.enabled` 为假，直接跳过。
     # 放在 D7 之后：D7 的「非回环 + 明文」退出码（3）不能被这里的 2 抢先。
     if checker.enabled and checker.weak:
-        if is_loopback(opts.host):
+        # 逃生舱只把「拒绝启动」降级为警告，判定本身照跑 —— 用户仍要看见这枚 token 是弱的
+        if loopback or trusted:
+            reason = ("  本机回环访问暂且放行，但别把它用在跨机 / 公网场景。"
+                      if loopback else
+                      "  --allow-no-auth 已放行：请确认所在网段可信。")
             typer.secho(
-                f"警告: --token 强度不足（{checker.weak_reason}）。\n"
-                "  本机回环访问暂且放行，但别把它用在跨机 / 公网场景。",
+                f"警告: --token 强度不足（{checker.weak_reason}）。\n" + reason,
                 err=True, fg=typer.colors.YELLOW,
             )
         else:
@@ -305,6 +349,9 @@ def print_banner(opts: Options, display_host: str, port: int, scheme: str,
     else:
         typer.secho("  明文 HTTP：未加密 —— 本机回环访问尚可，请勿跨机使用",
                     fg=TyperColors.YELLOW)
+    if not checker.enabled and not is_loopback(opts.host):
+        typer.secho("  鉴权：    已关闭 + 非回环 —— 局域网内任何人都能用你的 NPU",
+                    fg=TyperColors.RED)
     chain = " → ".join(devices) if devices else "?"
     # 只有一个设备时没有"链"可言，别把「NPU」硬说成「回退链 NPU」——那是误导
     if len(devices) > 1:
@@ -403,9 +450,13 @@ def main(
     cert: Optional[str] = typer.Option(None, "--cert", help="证书路径（--tls on 时必填）"),
     key: Optional[str] = typer.Option(None, "--key", help="私钥路径（--tls on 时必填）"),
     token: Optional[str] = typer.Option(None, "--token", help="访问令牌；不给则自动生成并打印一次"),
-    no_auth: bool = typer.Option(False, "--no-auth", help="关闭鉴权（**仅回环地址允许**）"),
+    no_auth: bool = typer.Option(
+        False, "--no-auth", help="关闭鉴权（非回环地址需再加 --allow-no-auth）"),
     allow_insecure: bool = typer.Option(
         False, "--allow-insecure", help="放行「非回环 + 明文」这一危险组合"),
+    allow_no_auth: bool = typer.Option(
+        False, "--allow-no-auth",
+        help="逃生舱：非回环下允许 --no-auth，并放行明文与弱 token（测试 / 可信局域网）"),
     no_open: bool = typer.Option(False, "--no-open", help="不自动打开浏览器"),
     device: Optional[str] = typer.Option(None, "--device", "-d", help="npu | cpu | gpu | auto | hetero"),
     newline: Optional[str] = typer.Option(None, "--newline", help="soft | hard | auto（语义同 nputr）"),
@@ -421,6 +472,7 @@ def main(
 
     **安全性 > 稳定性 > 效率**：非回环绑定或启用 TLS 一律强制 token；
     「非回环 + 明文」默认拒绝启动（除非 --allow-insecure）。
+    测试 / 可信局域网可用 `--allow-no-auth` 一次性解除这三条硬拦（降级为警告）。
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -437,6 +489,7 @@ def main(
     # bool 型：命令行开关只能"加"，env 只能"减"。用 or 合并，`False` 不会覆盖 env 的 True
     opts.no_auth = opts.no_auth or no_auth
     opts.allow_insecure = opts.allow_insecure or allow_insecure
+    opts.allow_no_auth = opts.allow_no_auth or allow_no_auth
     opts.debug = opts.debug or debug
     opts.no_warmup = opts.no_warmup or no_warmup
     if no_open:
@@ -486,6 +539,9 @@ def start_server(opts: Options) -> int:
     if scheme == "http" and not is_loopback(opts.host):
         typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：局域网内任何人都能用你的 NPU",
                     err=True, fg=typer.colors.RED)
+    if not checker.enabled and not is_loopback(opts.host):
+        typer.secho("⚠️ 当前是**无鉴权 + 非回环**：同一网段任何人都能直接用你的 NPU，"
+                    "连 token 都不用猜", err=True, fg=typer.colors.RED)
 
     return run_server(server_ctx, opts)
 

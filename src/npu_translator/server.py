@@ -295,6 +295,7 @@ class Options:
     token: Optional[str] = None
     no_auth: bool = False
     allow_insecure: bool = False
+    allow_no_auth: bool = False
     device: str = cfg.DEVICE
     newline: str = "soft"
     max_input_chars: int = DEFAULT_MAX_INPUT_CHARS
@@ -351,6 +352,7 @@ def options_from_env() -> Options:
         token=os.getenv("NPT_SERVE_TOKEN") or None,
         no_auth=_bool("NPT_SERVE_NO_AUTH", False),
         allow_insecure=_bool("NPT_SERVE_ALLOW_INSECURE", False),
+        allow_no_auth=_bool("NPT_SERVE_ALLOW_NO_AUTH", False),
         device=_env_str("NPT_DEVICE", cfg.DEVICE),
         max_input_chars=_int("NPT_SERVE_MAX_INPUT_CHARS", DEFAULT_MAX_INPUT_CHARS),
         timeout=_float("NPT_SERVE_TIMEOUT", DEFAULT_TIMEOUT_S),
@@ -441,7 +443,7 @@ def print_banner(port: int, scheme: str, checker: TokenChecker, devices: list[st
         typer.secho(f"  鉴权：    Authorization: Bearer {checker.token}", fg=Yellow)
         typer.secho("            （只打印这一次，请现在复制保存）", fg=Dim)
     else:
-        typer.secho("  鉴权：    已关闭（仅回环明文允许这样配）", fg=Yellow)
+        typer.secho("  鉴权：    已关闭（--no-auth；非回环下需 --allow-no-auth）", fg=Yellow)
     if scheme == "https":
         typer.secho(f"  证书：    自签发 · SHA-256 指纹 {fingerprint}")
         typer.secho("            （请核对与首次一致；别把它加入系统信任库）", fg=Dim)
@@ -556,9 +558,13 @@ def main(
     cert: Optional[str] = typer.Option(None, "--cert", help="证书路径（--tls on 时必填）"),
     key: Optional[str] = typer.Option(None, "--key", help="私钥路径（--tls on 时必填）"),
     token: Optional[str] = typer.Option(None, "--token", help="访问令牌；不给则自动生成并打印一次"),
-    no_auth: bool = typer.Option(False, "--no-auth", help="关闭鉴权（**仅回环地址允许**）"),
+    no_auth: bool = typer.Option(
+        False, "--no-auth", help="关闭鉴权（非回环地址需再加 --allow-no-auth）"),
     allow_insecure: bool = typer.Option(
         False, "--allow-insecure", help="放行「非回环 + 明文」这一危险组合"),
+    allow_no_auth: bool = typer.Option(
+        False, "--allow-no-auth",
+        help="逃生舱：非回环下允许 --no-auth，并放行明文与弱 token（测试 / 可信局域网）"),
     device: Optional[str] = typer.Option(None, "--device", "-d", help="npu | cpu | gpu | auto | hetero"),
     newline: Optional[str] = typer.Option(None, "--newline", help="soft | hard | auto（语义同 nputr）"),
     max_input_chars: Optional[int] = typer.Option(None, "--max-input-chars", help="单次输入字符上限"),
@@ -578,6 +584,7 @@ def main(
 
     **安全性 > 稳定性 > 效率**：非回环绑定或启用 TLS 一律强制 token；
     「非回环 + 明文」默认拒绝启动（除非 --allow-insecure）。
+    测试 / 可信局域网可用 `--allow-no-auth` 一次性解除这三条硬拦（降级为警告）。
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -596,6 +603,7 @@ def main(
     # bool 型：命令行开关只能"加"，env 只能"减"。用 or 合并，False 不会覆盖 env 的 True
     opts.no_auth = opts.no_auth or no_auth
     opts.allow_insecure = opts.allow_insecure or allow_insecure
+    opts.allow_no_auth = opts.allow_no_auth or allow_no_auth
     opts.debug = opts.debug or debug
     opts.no_warmup = opts.no_warmup or no_warmup
 
@@ -639,6 +647,9 @@ def start_server(opts: Options) -> int:
     if scheme == "http" and not is_loopback(opts.host):
         typer.secho("⚠️ 当前是**明文 HTTP + 非回环**：局域网内任何人都能用你的 NPU",
                     err=True, fg=typer.colors.RED)
+    if not checker.enabled and not is_loopback(opts.host):
+        typer.secho("⚠️ 当前是**无鉴权 + 非回环**：同一网段任何人都能直接用你的 NPU，"
+                    "连 token 都不用猜", err=True, fg=typer.colors.RED)
 
     return run_server(ctx, runtime, opts)
 

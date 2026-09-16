@@ -628,3 +628,61 @@ def test_d7_still_wins_over_weak_token_check(capsys):
         webcli.resolve_binding(opts)
     assert excinfo.value.exit_code == webcli.EXIT_STARTUP
     assert "拒绝启动" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- 逃生舱 --allow-no-auth
+def test_allow_no_auth_permits_no_auth_on_non_loopback():
+    """逃生舱的核心用途：非回环 + 关闭鉴权，强制启动。"""
+    opts = webcli.Options(host="192.168.1.5", tls="auto", no_auth=True, allow_no_auth=True)
+    scheme, checker, enabled = webcli.resolve_binding(opts)
+    assert checker.enabled is False, "--no-auth 必须真的生效，而不是被自动发的 token 顶掉"
+    assert scheme == "https" and enabled is True
+
+
+def test_allow_no_auth_lifts_plaintext_refusal(capsys):
+    """一把全解：非回环 + 明文 + 无鉴权，三道闸一起降级为警告。"""
+    opts = webcli.Options(host="0.0.0.0", tls="off", no_auth=True, allow_no_auth=True)
+    scheme, checker, enabled = webcli.resolve_binding(opts)
+    assert scheme == "http" and enabled is False
+    assert checker.enabled is False
+    assert "allow-no-auth" in capsys.readouterr().err
+
+
+def test_allow_no_auth_downgrades_weak_token_to_warning(capsys):
+    """D11 在逃生舱下只警告不退 2 —— 判定照跑，用户仍要看见这枚 token 是弱的。"""
+    opts = webcli.Options(host="192.168.1.5", tls="auto", token="1234", allow_no_auth=True)
+    _, checker, _ = webcli.resolve_binding(opts)
+    assert checker.enabled and checker.weak
+    assert "强度不足" in capsys.readouterr().err
+
+
+def test_without_escape_hatch_no_auth_still_refused_on_non_loopback(capsys):
+    """护栏：没给逃生舱时，非回环 --no-auth 仍然退 2（加了开关不能让既有规则整体松弛）。"""
+    opts = webcli.Options(host="192.168.1.5", tls="auto", no_auth=True)
+    with pytest.raises(typer.Exit) as excinfo:
+        webcli.resolve_binding(opts)
+    assert excinfo.value.exit_code == webcli.EXIT_USAGE
+    assert "allow-no-auth" in capsys.readouterr().err
+
+
+def test_escape_hatch_does_not_disable_auth_by_itself():
+    """只给逃生舱 ≠ 关鉴权：`--no-auth` 仍是「我要关」的唯一表达方式。"""
+    opts = webcli.Options(host="192.168.1.5", tls="auto", allow_no_auth=True)
+    _, checker, _ = webcli.resolve_binding(opts)
+    assert checker.enabled
+
+
+def test_no_auth_wins_on_loopback_even_with_tls():
+    """回归（2026-09-16 实测）：`--tls auto` 是默认值，旧实现下 --no-auth 被静默吞掉。
+
+    旧判据是 `no_auth and not must_auth`，而 must_auth = 非回环 or 启 TLS，
+    于是「回环 + 默认 TLS」走进 else 分支自动发了一枚 token，--no-auth 从来没生效过。
+    """
+    opts = webcli.Options(host="127.0.0.1", tls="auto", no_auth=True)
+    _, checker, enabled = webcli.resolve_binding(opts)
+    assert enabled is True and checker.enabled is False
+
+
+def test_allow_no_auth_env_var(monkeypatch):
+    monkeypatch.setenv("NPT_WEB_ALLOW_NO_AUTH", "1")
+    assert webcli.options_from_env().allow_no_auth is True

@@ -710,3 +710,36 @@ def test_unexpected_exception_returns_scrubbed_500():
     # ★ 绝不回传本机路径，也不回传 traceback
     assert "victim" not in r.text and "Traceback" not in r.text
     assert set(r.json()["error"]) == {"code", "message"}
+
+
+def test_serve_allow_no_auth_env_var(monkeypatch):
+    from npu_translator.server import options_from_env
+
+    monkeypatch.setenv("NPT_SERVE_ALLOW_NO_AUTH", "1")
+    assert options_from_env().allow_no_auth is True
+
+
+def test_build_runtime_allows_no_auth_on_non_loopback_with_escape_hatch():
+    """nputserve 复用 `web.cli.resolve_binding` —— 逃生舱在这里必须同样生效。
+
+    用 `tls="off"`：auto 会真去签一张自签证书（往用户目录写文件），单测不该有这个副作用。
+    """
+    from npu_translator import server as srv
+
+    opts = srv.Options(host="192.168.1.5", tls="off", no_auth=True, allow_no_auth=True)
+    _ctx, _runtime, checker, _devices, plan = srv.build_runtime(opts)
+    assert checker.enabled is False
+    assert plan.enabled is False
+
+
+def test_build_runtime_still_refuses_no_auth_without_escape_hatch(capsys):
+    """护栏（nputserve 侧）：没给逃生舱，非回环 --no-auth 依然退 2。"""
+    import typer
+
+    from npu_translator import server as srv
+
+    opts = srv.Options(host="192.168.1.5", tls="off", allow_insecure=True, no_auth=True)
+    with pytest.raises(typer.Exit) as excinfo:
+        srv.build_runtime(opts)
+    assert excinfo.value.exit_code == 2
+    assert "allow-no-auth" in capsys.readouterr().err
