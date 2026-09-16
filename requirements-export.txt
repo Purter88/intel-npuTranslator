@@ -1,7 +1,7 @@
 # 导出专用依赖（与运行时版本解耦，SPEC.md · 模型）
 # 用法：
 #     python -m venv .venv-export
-#     .\.venv-export\Scripts\python.exe -m pip install -r requirements-export.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#     .\.venv-export\Scripts\python.exe -m pip install -r requirements-export.txt   # 源拉不动就 -i <镜像地址>
 #
 # ⚠️ 不要装进运行时 .venv：optimum-intel / transformers / torch 与
 #    openvino-genai 版本强绑定，混装会引发 R3 版本冲突。

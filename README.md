@@ -115,7 +115,9 @@ python scripts\build.py --list-models   # 看可选模型
 > ⚠️ **不要用 `setx`** —— 它会把 `%USERPROFILE%` 这类变量展平成死字符串，还会 1024 字符截断。
 > 加完重开终端，用 `nputr --help` / `nputweb --help` / `nputserve --help` 验证。
 
-其他选项：`--python <解释器>`（默认自动找 3.11）· `--model <key>` · `--no-deps`（只重建命令脚本）· `--clean`（删掉生成的 `bin\`）。
+其他选项：`--python <解释器>`（默认自动找 3.11）· `--model <key>` · `--mirror <pip源>` · `--no-deps`（只重建命令脚本）· `--clean`（删掉生成的 `bin\`）。
+
+> 依赖装不全时脚本会自动换 pip 源重试，并在最后**用 venv 自带的构建后端兜底**，所以断网也能重建命令。
 
 ### 方式二：手动三步
 
@@ -125,8 +127,12 @@ python scripts\build.py --list-models   # 看可选模型
 # 用 Python 3.11 建 venv（3.11 的 wheel 最全）
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt
 ```
+
+> 拉不动或卡住，多半是 pip 源的问题：随便换一个国内镜像（阿里云 / 腾讯云 / 华为云）
+> 或官方源，加 `-i <源地址>` 即可 —— 有的网络下清华源会直接返回 403。
+> 不想纠结就用方式一，它会自己逐个探测源。
 
 > 开发（跑测试）再加：`pip install -r requirements-dev.txt`
 

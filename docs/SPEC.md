@@ -103,7 +103,7 @@ cd Intel-NPU-Translator          # 项目根；路径一律用相对写法，禁
 
 # 1) 建环境（用 py 启动器锁定 3.11，别用裸 python）
 py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # 源拉不动就换一个：-i <镜像地址>
 
 # 2) 设备探测
 .\.venv\Scripts\python.exe scripts\probe_device.py
