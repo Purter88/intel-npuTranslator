@@ -1,4 +1,4 @@
-"""推理引擎：LLMPipeline 封装（架构与目录结构）。
+"""推理引擎：LLMPipeline 封装（SPEC.md · 架构与目录结构）。
 
 要点：
 - **惰性加载**：构造不碰模型，首次 translate 才 load（避免 import 即吃 1GB 内存）
@@ -76,7 +76,7 @@ class TranslateEngine:
         """NPU 需要静态形状 + 编译缓存；CPU/GPU 用默认。
 
         `pipeline_props` 承载 CPU 调度类属性（`INFERENCE_NUM_THREADS` /
-        `SCHEDULING_CORE_TYPE` / `ENABLE_HYPER_THREADING`，见「CLI 管道契约」）。
+        `SCHEDULING_CORE_TYPE` / `ENABLE_HYPER_THREADING`，见 SPEC.md · CLI 管道契约）。
         """
         base = cfg.npu_pipeline_config() if device.upper().startswith("NPU") else {}
         return {**base, **self.pipeline_props}
@@ -139,7 +139,7 @@ class TranslateEngine:
     def warmup(self) -> float:
         """用一句极短 prompt 触发 NPU 编译，返回耗时（秒）。
 
-        首次编译约 30 s，命中 .npucache 后约 4 s（实测，见实测基线）。
+        首次编译约 30 s，命中 .npucache 后约 4 s（实测，见 SPEC.md · 实测基线）。
         """
         self.load()
         import time

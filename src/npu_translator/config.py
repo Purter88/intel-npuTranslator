@@ -1,6 +1,6 @@
 """全局配置：所有写死的常量集中在此，可通过环境变量覆盖。
 
-约定（执行约定）：模型路径、MAX_PROMPT_LEN、量化参数等常量
+约定（SPEC.md · 执行约定）：模型路径、MAX_PROMPT_LEN、量化参数等常量
 只允许出现在本文件，业务代码一律从这里取。
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ AUTO_FALLBACK_ON_SLOW_NPU = _env_bool("NPT_AUTO_FALLBACK_ON_SLOW_NPU", False)
 
 # ---------------------------------------------------------------- NPU 静态形状
 # KV cache 总容量 = MAX_PROMPT_LEN + MIN_RESPONSE_LEN
-# ★ 实测甜点（2026-09-11，见实测基线）：512+256 相比 1024+512
+# ★ 实测甜点（2026-09-11，见 SPEC.md · 实测基线）：512+256 相比 1024+512
 #   TTFT 1.247s -> 0.591s（-53%），吞吐 29.83 -> 32.41 tok/s（+9%）
 #   代价是 KV cache 上限 768，因此长文本必须靠分段（SEGMENT_MAX_TOKENS）规避
 MAX_PROMPT_LEN = _env_int("NPT_MAX_PROMPT_LEN", 512)
@@ -86,9 +86,9 @@ BENCH_MAX_NEW_TOKENS = _env_int("NPT_BENCH_MAX_NEW_TOKENS", 128)
 # 预热那一次不计入统计（NPU 首次推理含编译，混进来会把平均值拉爆）
 BENCH_WARMUP = _env_bool("NPT_BENCH_WARMUP", True)
 
-# ---------------------------------------------------------------- 退出行为（CLI 管道契约）
+# ---------------------------------------------------------------- 退出行为（SPEC.md · CLI 管道契约）
 # ★ 硬退出：flush 之后直接 os._exit，绕开解释器关停阶段。
-#   背景（2026-09-12 实测，见踩坑记录）：译文输出完毕后进程里仍挂着
+#   背景（2026-09-12 实测，见 SPEC.md · 踩坑记录）：译文输出完毕后进程里仍挂着
 #   OpenVINO 的 daemon 线程（ThreadPoolExecutor），CPython 关停时会把它 join 掉；
 #   一旦该线程被原生调用卡住（NPU 被占用 / 驱动态异常），进程就卡在终端不退。
 #   关掉它可以对比"是否真是关停阶段卡住"，但默认必须开。
@@ -137,7 +137,7 @@ def available_models() -> list[str]:
 
 
 def npu_pipeline_config() -> dict:
-    """NPU 流水线配置（NPU 实现要点）。"""
+    """NPU 流水线配置（SPEC.md · NPU 实现要点）。"""
     return {
         "MAX_PROMPT_LEN": MAX_PROMPT_LEN,
         "MIN_RESPONSE_LEN": MIN_RESPONSE_LEN,

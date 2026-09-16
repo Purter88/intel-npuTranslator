@@ -1,4 +1,4 @@
-# 导出专用依赖（与运行时版本解耦，模型）
+# 导出专用依赖（与运行时版本解耦，SPEC.md · 模型）
 # 用法：
 #     python -m venv .venv-export
 #     .\.venv-export\Scripts\python.exe -m pip install -r requirements-export.txt -i https://pypi.tuna.tsinghua.edu.cn/simple

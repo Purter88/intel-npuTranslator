@@ -3,7 +3,7 @@
 背景（2026-09-15）：`cryptography` 只在 pyproject 的 `web` extra 里声明了，
 `requirements.txt` 里漏掉 —— 而 `scripts/setup_env.ps1` 走的是 requirements.txt，
 照它从零跑一遍，`nputweb` 起不来（Windows 没有自带 openssl 命令，
-cryptography 是自签证书的唯一来源，见「WebUI（nputweb）」）。
+cryptography 是自签证书的唯一来源，见 SPEC.md · WebUI（nputweb））。
 
 两层断言：
 1. **相对**：两份清单的包集合与版本约束必须一致 —— 抓单向漂移（今天这个 bug 属于此类）

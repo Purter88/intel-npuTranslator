@@ -1,4 +1,4 @@
-"""异构调度：动态派活 + 有序重组 + 降级链（CLI 管道契约）。
+"""异构调度：动态派活 + 有序重组 + 降级链（SPEC.md · CLI 管道契约）。
 
 ## 为什么是动态派活而不是静态比例
 
@@ -362,7 +362,7 @@ def cpu_pipeline_props(
     core_type: str = "any",
     ht: str | None = None,
 ) -> dict:
-    """构造 CPU 侧的 OpenVINO 属性（CLI 管道契约）。
+    """构造 CPU 侧的 OpenVINO 属性（SPEC.md · CLI 管道契约）。
 
     :param threads: `0` = OpenVINO 自动（**默认，不写死核心数**，R13）；
                     `half` = `cpu_count() // 2`；正整数 = 显式
@@ -411,8 +411,8 @@ def build_workers(
 ) -> list[Worker]:
     """按设备模式建 worker 列表。
 
-    - `hetero` → NPU + CPU 两条流水线（**代价约 4 GB 内存**，实测见「CLI 管道契约」）
-    - 其他 → 单设备，**不加载第二条 pipeline**（CLI 管道契约）
+    - `hetero` → NPU + CPU 两条流水线（**代价约 4 GB 内存**，实测见 SPEC.md · CLI 管道契约）
+    - 其他 → 单设备，**不加载第二条 pipeline**（SPEC.md · CLI 管道契约）
     """
     dev = (device or cfg.DEVICE).strip().lower()
 

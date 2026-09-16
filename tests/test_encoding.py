@@ -1,4 +1,4 @@
-"""编码层单测（CLI 管道契约）。
+"""编码层单测（SPEC.md · CLI 管道契约）。
 
 覆盖：BOM 四种 + 无 BOM 猜测链 + 强制编码 + 失败路径 + 换行归一 + 体积上限 + 输出 BOM 语义。
 不加载模型，秒级。
@@ -76,13 +76,13 @@ def test_forced_encoding_failure_raises():
 
 
 def test_undecodable_raises_instead_of_mojibake():
-    """关键：绝不静默 replace。静默 mojibake 比崩溃危险（CLI 管道契约）。"""
+    """关键：绝不静默 replace。静默 mojibake 比崩溃危险（SPEC.md · CLI 管道契约）。"""
     with pytest.raises(DecodeError):
         decode_bytes(b"\x81\x20\xff\xfe\xfd")
 
 
 def test_is_broken_pipe_covers_windows_einval():
-    """Windows 关闭管道给的是 OSError(22)，不是 BrokenPipeError（CLI 管道契约）。"""
+    """Windows 关闭管道给的是 OSError(22)，不是 BrokenPipeError（SPEC.md · CLI 管道契约）。"""
     from npu_translator.encoding import is_broken_pipe
 
     assert is_broken_pipe(BrokenPipeError())

@@ -1,6 +1,6 @@
 """HY-MT1.5 支持的语种表（33 主流 + 5 民族语/方言）。
 
-英文名用于 prompt 里的 {target_language}（Prompt 与语言：必须用英文语言名）。
+英文名用于 prompt 里的 {target_language} —— **必须用英文语言名**（见 SPEC.md · Prompt 与语言）。
 """
 from __future__ import annotations
 

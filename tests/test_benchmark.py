@@ -1,4 +1,4 @@
-"""基准模块测试（CLI 管道契约 · --benchmark）。
+"""基准模块测试（SPEC.md · CLI 管道契约 · --benchmark）。
 
 原则与其它测试一致：**不加载模型、不碰 OpenVINO**，套件必须保持秒级。
 做法是把管道工厂注入进去（`pipeline_factory` / `gen_config_factory`），
@@ -306,7 +306,7 @@ def test_json_survives_nan():
 
 
 def test_report_never_leaks_absolute_paths():
-    """Git 约定：本机绝对路径禁止入库。基准报告是要进 docs/ 的。
+    """见 `SPEC.md · Git 约定：本机绝对路径禁止入库`。基准报告是要进 docs/ 的。
 
     模型路径与 NPUW_CACHE_DIR 天然是绝对路径，不收敛就把机器目录结构写进了版本库。
     """

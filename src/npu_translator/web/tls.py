@@ -1,4 +1,4 @@
-"""TLS 证书三态（WebUI（nputweb））。
+"""TLS 证书三态（SPEC.md · WebUI（nputweb））。
 
 三态语义：
 
@@ -76,7 +76,7 @@ def parse_mode(raw: str | TlsMode | None) -> TlsMode:
     """把字符串解析成 `TlsMode`。大小写与空白都容忍，`None` 当 `auto`。
 
     ⚠️ 不要用 `str.islower()` 之类的字符判断来做「是否已是枚举」—— 那是另一个项目里
-    踩过的坑（Prompt 与语言），这里老实用 try/except。
+    踩过的坑（SPEC.md · Prompt 与语言），这里老实用 try/except。
     """
     if isinstance(raw, TlsMode):
         return raw

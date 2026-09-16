@@ -1,6 +1,6 @@
-"""命令行入口（CLI 管道契约）。
+"""命令行入口（SPEC.md · CLI 管道契约）。
 
-硬约束（CLI 管道契约）：
+硬约束（SPEC.md · CLI 管道契约）：
 
 1. **stdout 只有译文**，诊断 / 进度 / 耗时 / 警告一律 stderr
 2. **编码由程序全权控制**，不依赖 shell 重定向（PS 5.1 的 `>` 会产出 UTF-16LE）
@@ -54,7 +54,7 @@ from .orchestrate import OrchestrateConfig, Translator
 from .pool import FatalWorkerError, cpu_pipeline_props
 from .segment import NEWLINE_MODES
 
-# ---------------------------------------------------------------- 退出码（CLI 管道契约）
+# ---------------------------------------------------------------- 退出码（SPEC.md · CLI 管道契约）
 EXIT_OK = 0
 EXIT_INPUT = 1           # 输入错误（含 --strict 下的空输入）
 EXIT_USAGE = 2           # 参数错误（typer 默认也是 2）
@@ -210,7 +210,7 @@ def _run_translate(text: Optional[str], file: Optional[str], opts: Options) -> i
         degraded.append(name)
         log.warn(f"设备 {name} 不可用，已降级：{err}")
 
-    # 编排层（WebUI（nputweb）D8）：分段 / 去重 / 缓存 / 拼接都在它里面，
+    # 编排层（SPEC.md · 架构与目录结构 · 共用编排层 orchestrate.py）：分段 / 去重 / 缓存 / 拼接都在它里面，
     # CLI 只负责「输入怎么来、输出怎么走、退出码怎么映射」。
     try:
         orch = Translator(
@@ -269,7 +269,7 @@ def _run_translate(text: Optional[str], file: Optional[str], opts: Options) -> i
         if warm_thread.is_alive():
             log.error(
                 f"引擎预热超过 {cfg.WARMUP_TIMEOUT}s 仍未就绪"
-                f"（NPU 可能被其它进程占用，见活跃风险 R9）"
+                f"（NPU 可能被其它进程占用，见 SPEC.md · 已知问题与活跃风险 · NPU 被其他进程占用时生成永久挂起）"
             )
             return EXIT_MODEL
 
@@ -302,7 +302,7 @@ def _run_translate(text: Optional[str], file: Optional[str], opts: Options) -> i
         return EXIT_OK
 
     # ---------------- 5. 翻译：分段 / 缓存 / 批内去重 / 拼接全在编排层里
-    # （WebUI（nputweb）D8 —— CLI 不该再自己攥着这些踩过坑的细节）
+    # （这些踩过坑的细节归编排层，见 SPEC.md · 架构与目录结构 · 共用编排层 orchestrate.py）
     outcome = orch.translate(source_text)
 
     log.debug(f"分段: {outcome.units} 段 / {outcome.lines} 行，模式={opts.newline}")
@@ -368,7 +368,7 @@ class BenchOptions:
 
 
 def _run_benchmark(opts: BenchOptions) -> int:
-    """跑基准并输出报告（CLI 管道契约 · --benchmark）。
+    """跑基准并输出报告（SPEC.md · CLI 管道契约 · --benchmark）。
 
     与翻译路径的三点差异：
 
@@ -604,7 +604,7 @@ def _build_command():
 
     click 的 `MultiCommand.allow_interspersed_args = False`：一旦遇到第一个
     位置参数就停止解析选项，于是 `nputr "文本" --to en` 会把 --to 当成
-    子命令名报 "No such command"。规格（CLI 管道契约）的示例就是这种写法，必须放开。
+    子命令名报 "No such command"。规格（SPEC.md · CLI 管道契约）的示例就是这种写法，必须放开。
 
     没有子命令（语种/设备列表改成了 --languages / --devices 选项），
     所以这里可以无条件放开。
@@ -626,7 +626,7 @@ def _as_exit_code(code: object) -> int:
 def _cli_main() -> int:
     """CLI 主逻辑，**只返回退出码，不结束进程**。
 
-    与 `main_entry` 分开的原因（CLI 管道契约）：`main_entry` 默认会 `os._exit`，
+    与 `main_entry` 分开的原因（SPEC.md · CLI 管道契约）：`main_entry` 默认会 `os._exit`，
     在 pytest / CliRunner 里直接调用它会把测试进程一起带走。测试请调本函数。
     """
     # `configure_stdio()` 必须在 typer 解析参数**之前**：否则参数错误的提示
@@ -679,7 +679,7 @@ def _log_shutdown_diagnostics(code: int) -> None:
 
 
 def main_entry() -> None:
-    """console script 入口（CLI 管道契约）。
+    """console script 入口（SPEC.md · CLI 管道契约）。
 
     职责：**把进程干净地结束掉**。真正的 CLI 逻辑在 `_cli_main`。
 

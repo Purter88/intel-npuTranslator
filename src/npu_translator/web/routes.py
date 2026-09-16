@@ -1,4 +1,4 @@
-"""`/api/*` 路由（WebUI（nputweb））。
+"""`/api/*` 路由（SPEC.md · WebUI（nputweb））。
 
 ## 为什么必须 `run_in_executor`，而且 executor 只有 **1 个 worker**
 
@@ -6,7 +6,7 @@
 在 `async def` 里直接调它 → 阻塞事件循环 → **整个服务卡死**，包括 `/api/health` 在内的
 所有请求一起失联。所以必须丢到线程里。
 
-那为什么不是多线程池？NPU 是单流设备（`NPU 实现要点`）：
+那为什么不是多线程池？NPU 是单流设备（`SPEC.md · NPU 实现要点`）：
 并发不会更快，只会让多个 batch 同时驻留内存 → OOM。engine 内部那把全局锁也决定了
 它们最终仍会串行 —— 多线程只是把「排队」从队列挪进了锁竞争。所以 executor 的 worker 数是 **1**。
 

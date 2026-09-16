@@ -1,4 +1,4 @@
-"""HY-MT1.5 官方 prompt 模板（Prompt 与语言，严格照抄官方）。
+"""HY-MT1.5 官方 prompt 模板（严格照抄官方，见 SPEC.md · Prompt 与语言）。
 
 注意：{target_language} 必须用英文语言名（English / Japanese），不要用语言代码。
 """

@@ -1,4 +1,4 @@
-"""分段与换行三档单测（CLI 管道契约）。
+"""分段与换行三档单测（SPEC.md · CLI 管道契约）。
 
 验收点：
 - 硬折行散文 6 行 → 输出仍是 6 行（R12）
@@ -84,7 +84,7 @@ def test_auto_keeps_six_lines_of_hard_wrapped_prose():
 
 
 def test_hard_splits_log_into_four_units():
-    """回归验收清单 第 2 项：hard 模式日志 4 行切 4 段。"""
+    """hard 模式日志 4 行切 4 段（见 SPEC.md · 回归验收清单）。"""
     plan = segment(LOG, mode=HARD)
     assert len(plan.units) == 4
     assert [u.text for u in plan.units] == LOG.split("\n")

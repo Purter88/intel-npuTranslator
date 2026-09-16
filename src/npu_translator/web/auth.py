@@ -1,4 +1,4 @@
-"""鉴权与 Host 白名单（WebUI（nputweb））。
+"""鉴权与 Host 白名单（SPEC.md · WebUI（nputweb））。
 
 ## 为什么有 token —— 以及为什么「只绑 127.0.0.1」不算安全
 

@@ -17,7 +17,7 @@
 
 两条硬约定（改之前先想清楚）：
 1. **只导出 nputr / nputweb 两个命令**。pyproject 里还有 ``npu-translate`` 别名，
-   它仍存在于 .venv\\Scripts 但**不进 PATH**（见「CLI 管道契约」）。
+   它仍存在于 ``.venv\\Scripts`` 但**不进 PATH**（见 SPEC.md · CLI 管道契约）。
 2. **保留 editable install**：它提供 console script 与 dist-info 元数据，
    是 `pip list` / `importlib.metadata` 能认到本项目的唯一来源。
    转发脚本另外设 ``PYTHONPATH`` 作为兜底 —— sys.path 里 PYTHONPATH 排在

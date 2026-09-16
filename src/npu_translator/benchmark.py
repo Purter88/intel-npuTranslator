@@ -1,4 +1,4 @@
-"""跨平台性能基准（CLI 管道契约 · --benchmark）。
+"""跨平台性能基准（SPEC.md · CLI 管道契约 · --benchmark）。
 
 给 `nputr -b` 用，也可被 `scripts/` 或第三方脚本直接 import。
 
@@ -13,7 +13,7 @@
 
 3. **报告自带环境指纹** —— 跨平台对比的前提是知道数据来自哪台机器：
    OS / CPU 核数 / Python / OpenVINO / NPU 驱动与 tiles 全都进 JSON。
-   本机「CPU 比 NPU 快 1.9×」不可外推（活跃风险 R13），换机器结论可能反转。
+   本机「CPU 比 NPU 快 1.9×」不可外推（SPEC.md · 已知问题与活跃风险 · 跨机器默认值不可外推），换机器结论可能反转。
 
 ## 与 scripts/bench.py 的关系
 
@@ -78,7 +78,7 @@ def _finite(value: float) -> float:
 
 
 def display_path(value: Any) -> Any:
-    """把绝对路径收敛成相对 / 文件名（Git 约定：**本机绝对路径禁止入库**）。
+    """把绝对路径收敛成相对 / 文件名（SPEC.md · Git 约定：本机绝对路径禁止入库）。
 
     基准报告是要进 `docs/` 的，而模型路径与 `NPUW_CACHE_DIR` 天然是绝对路径
     （`config.MODEL_PATH` 就长 `X:\\...\\models\\...`）。不收敛就等于把机器目录结构
@@ -141,7 +141,7 @@ def select_devices(preferred: str = "auto", manager: DeviceManager | None = None
     - `hetero` 在基准里没有意义（要的是单个设备的成绩），按 auto 处理。
 
     ⚠️ GPU 必须过 vendor 过滤：OpenVINO 会把 NVIDIA dGPU 列成 `GPU.1`，
-    但它不走 CUDA 后端，跑上去必失败（踩坑记录）。
+    但它不走 CUDA 后端，跑上去必失败（SPEC.md · 踩坑记录）。
     """
     m = manager or DeviceManager()
     key = (preferred or "auto").strip().lower()
@@ -444,7 +444,7 @@ def run_benchmark(
 
         if dev.upper().startswith("NPU") and tokens > cfg.MIN_RESPONSE_LEN:
             msg = (f"{dev}: max_new_tokens={tokens} 超过 MIN_RESPONSE_LEN={cfg.MIN_RESPONSE_LEN}，"
-                   f"超窗会被静默截断（NPU 实现要点）")
+                   f"超窗会被静默截断（SPEC.md · NPU 实现要点）")
             entry.warnings.append(msg)
             emit("警告: " + msg)
 

@@ -1,4 +1,4 @@
-"""编码归一（CLI 管道契约）。
+"""编码归一（SPEC.md · CLI 管道契约）。
 
 Windows 控制台的两个坑，实测确认：
 
@@ -195,7 +195,7 @@ def is_broken_pipe(exc: BaseException) -> bool:
 
     ⚠️ 实测（Windows）：管道被关闭时抛的**不是** `BrokenPipeError` 而是
     `OSError: [Errno 22] Invalid argument`。只 catch `BrokenPipeError` 的话，
-    `nputr ... | more` 会直接把 traceback 喷到 stderr，正是 `CLI 管道契约` 要避免的。
+    `nputr ... | more` 会直接把 traceback 喷到 stderr，正是 `SPEC.md · CLI 管道契约` 要避免的。
     POSIX 上 EPIPE 会被 Python 映射成 `BrokenPipeError`，两者都覆盖。
     """
     if isinstance(exc, BrokenPipeError):

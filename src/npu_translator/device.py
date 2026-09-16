@@ -1,4 +1,4 @@
-"""设备探测与回退链（NPU 实现要点）。
+"""设备探测与回退链（SPEC.md · NPU 实现要点）。
 
 回退顺序：NPU → GPU(Intel iGPU) → CPU
 
@@ -131,7 +131,7 @@ class DeviceManager:
 
 
 def set_process_priority(level: str = "normal") -> bool:
-    """调整**整个进程**的 CPU 优先级（CLI 管道契约 `--cpu-priority`）。
+    """调整**整个进程**的 CPU 优先级（CLI 的 `--cpu-priority`，见 SPEC.md · CLI 管道契约）。
 
     :param level: `idle` | `below` | `normal`
     :return: 是否真的改了

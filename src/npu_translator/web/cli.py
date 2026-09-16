@@ -1,4 +1,4 @@
-"""`nputweb` 命令行入口（WebUI（nputweb））。
+"""`nputweb` 命令行入口（SPEC.md · WebUI（nputweb））。
 
 与 `nputr` 的关系：**并列的两个命令**，共用同一套 engine / orchestrate，
 但 IO 模型完全不同 —— `nputr` 是一次性管道工具（stdout 只有译文），
@@ -45,7 +45,7 @@ from .auth import HostPolicy, TokenChecker, generate_token, is_loopback
 from .limits import QueueGate, RateLimiter
 from .tls import TlsError, resolve_tls
 
-# 退出码沿用 CLI 管道契约 的语义
+# 退出码沿用 `SPEC.md · CLI 管道契约` 的语义
 EXIT_OK = 0
 EXIT_USAGE = 2     # 参数错误：证书缺一半、非法 host、非回环 + 明文
 EXIT_STARTUP = 3   # 启动失败：端口占用、证书加载失败、引擎加载失败
@@ -386,7 +386,7 @@ def merge(opts: Options, **cli_values: object) -> Options:
 
     ⚠️ 刻意**不用** `ctx.get_parameter_source()`：typer 0.27 自带一份 click，
     `ParameterSource` 与真 click 的那份是两个枚举类，`==` 恒为 False
-    （踩坑记录）。用 `None` 当"我没给"的信号，绕开整个问题。
+    （SPEC.md · 踩坑记录）。用 `None` 当"我没给"的信号，绕开整个问题。
     """
     for key, value in cli_values.items():
         if value is not None:
@@ -526,7 +526,7 @@ def main_entry() -> None:
     """console script 入口。
 
     为什么这里也 `os._exit`：卡住关停的往往不是正在翻译这件事，而是 uvicorn /
-    OpenVINO 留下的线程 join 不上（踩坑记录）。优雅阶段已经在
+    OpenVINO 留下的线程 join 不上（SPEC.md · 踩坑记录）。优雅阶段已经在
     `run_server` 里给过了，走到这里再卡就是白白浪费用户的时间。
     """
     try:

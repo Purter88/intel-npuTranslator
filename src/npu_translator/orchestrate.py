@@ -1,4 +1,4 @@
-"""共用编排层：翻译一段文本的完整流程（WebUI（nputweb））。
+"""共用编排层：翻译一段文本的完整流程（SPEC.md · WebUI（nputweb））。
 
 ## 为什么抽这一层
 
@@ -29,7 +29,7 @@ CLI 是一次性的，用完即弃，行为与抽出之前逐字一致。
 
 `Outcome.chars_per_second` 用的是**输出字符数 / 池内推理秒数**，不是 tokenizer 的真 token 数。
 理由：本项目的 GeneAI 路径拿不到 decode 计数（`TranslateEngine.tokens` 本身就是 `len(out)`），
-而「实测基线」的 M2 异构表用的就是字符/s。宁可用一个口径一致可比的真数，
+字符/s 口径见 `SPEC.md · 实测基线`（M2 异构表用的就是字符/s）。宁可用一个口径一致可比的真数，
 也不用一个看着像 token/s 的估数。
 """
 from __future__ import annotations
@@ -131,7 +131,8 @@ class ProgressSnapshot:
 
     为什么不用 SSE：本模块是单并发串行队列，同一时刻只有一个请求在跑，
     轮询一个共享快照就能拿到**真实**的段进度，不必为此引入流式协议
-    （「翻译中 3/7 段」因此是有真数据支撑的，不是假动画）。
+    （见 SPEC.md · 架构与目录结构 · 共用编排层 orchestrate.py）——
+    前端的「翻译中 3/7 段」因此是真数据，不是假动画。
     """
 
     active: bool = False
@@ -367,7 +368,7 @@ class Translator:
     ) -> Iterator[str]:
         """逐 token 产出。与分段互斥（多段没有单一 token 流），调用方负责拦。
 
-        只从第一个 worker 出 —— 流式只有一个设备产出（CLI 管道契约）。
+        只从第一个 worker 出 —— 流式只有一个设备产出（SPEC.md · CLI 管道契约）。
         """
         opts = self.opts
         tgt = opts.target if target is None else target
@@ -418,7 +419,7 @@ def translate_once(
     """一次性翻译（脚本 / 交互式用的便捷入口）：内部建 Translator 并预热。
 
     长生命周期的场景（WebUI / TUI / service）**不要**用这个 —— 每次调用都会重建
-    流水线，冷启动 30 s，而且绕开了「进程级单例」的初衷（架构与目录结构）。
+    流水线，冷启动 30 s，而且绕开了「进程级单例」的初衷（SPEC.md · 架构与目录结构）。
     """
     orch = Translator(OrchestrateConfig(target=target, source=source, **kwargs))
     orch.prepare()

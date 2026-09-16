@@ -1,10 +1,10 @@
-"""译文 LRU 缓存（CLI 管道契约）。
+"""译文 LRU 缓存（SPEC.md · CLI 管道契约）。
 
 **key 的构成是硬约束**：`(文本, 目标语言, 源语言)`，**不含设备**。
 否则同一段文本在 NPU 与 CPU 上会命中不同条目、给出不同译文，重试/降级时结果就不确定了。
 
 同理，术语表（glossary）一旦启用也必须进 key，否则不同术语表之间会串味。
-v1 CLI 不暴露 `--glossary`（CLI 管道契约），字段预留给 `service.py`。
+v1 CLI 不暴露 `--glossary`（SPEC.md · CLI 管道契约），字段预留给 `service.py`。
 """
 from __future__ import annotations
 

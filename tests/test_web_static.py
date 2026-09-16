@@ -1,12 +1,10 @@
-"""nputweb 前端的只读文本断言（WebUI（nputweb））。
-
-对应 S4（combobox）与 S8（验收用例）。
+"""nputweb 前端的只读文本断言（SPEC.md · WebUI（nputweb））。
 
 ## 为什么只做文本断言，不上 playwright
 
 前端是原生三件套：**没有 package.json、没有 node_modules、没有构建步骤**。
 为了几行断言引入一整套 JS 工具链，会让「秒级单测」这个前提直接破产 ——
-而套件跑得慢的后果是没人愿意跑它，等于没有测试（WebUI（nputweb）W8）。
+而套件跑得慢的后果是没人愿意跑它，等于没有测试（SPEC.md · WebUI（nputweb））。
 
 所以这里守的是**不需要浏览器就能验证、却又最容易悄悄退化**的三类不变量：
 

@@ -12,7 +12,7 @@ openvino-tokenizers==2026.3.1.0
 fastapi
 uvicorn[standard]
 # 自签 TLS 证书的唯一来源：Windows 没有自带 openssl 命令，
-# 缺了它 nputweb 起不来（见「WebUI（nputweb）」）
+# 缺了它 nputweb 起不来（见 SPEC.md · WebUI（nputweb））
 cryptography
 
 # CLI

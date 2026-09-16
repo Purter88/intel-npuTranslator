@@ -1,4 +1,4 @@
-"""orchestrate.py 的单测（WebUI（nputweb）D8）。
+"""orchestrate.py 的单测（SPEC.md · 架构与目录结构 · 共用编排层 orchestrate.py）。
 
 为什么这一层值得单测：它是 CLI / TUI / WebUI / M3 的**唯一**编排实现，
 「批内去重」「hard 打包行数校验」这类踩过坑的行为一旦漂移，四个入口一起错。

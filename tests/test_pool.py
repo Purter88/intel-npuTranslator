@@ -1,4 +1,4 @@
-"""异构调度单测（CLI 管道契约）——**用假 worker，不加载模型**。
+"""异构调度单测（SPEC.md · CLI 管道契约）——**用假 worker，不加载模型**。
 
 覆盖：有序重组 / 失败换人重试 / 重试上限 / worker 致命摘除 / 预热降级 / LPT / CPU 属性构造。
 """
@@ -53,7 +53,7 @@ def test_single_task_uses_serial_path():
 
 
 def test_output_order_matches_input_order():
-    """核心不变量：并行也不能打乱顺序（CLI 管道契约）。"""
+    """核心不变量：并行也不能打乱顺序（SPEC.md · CLI 管道契约）。"""
     slow = make_worker("SLOW", delay=0.02)
     fast = make_worker("FAST", delay=0.001)
     texts = [f"t{i}" for i in range(12)]
@@ -85,7 +85,7 @@ def test_longest_task_goes_first_lpt():
 
 
 def test_failed_task_is_retried_by_another_worker():
-    """CLI 管道契约：失败段在另一个设备重试。"""
+    """失败段在另一个设备重试（见 SPEC.md · CLI 管道契约）。"""
     bad = make_worker("BAD", fail_on={"难句"})
     good = make_worker("GOOD")
     pool = TranslationPool([bad, good], max_retries=2)
@@ -105,7 +105,7 @@ def test_retry_exhausted_is_reported_as_error():
 
 
 def test_fatal_worker_is_removed_and_other_keeps_going():
-    """CLI 管道契约（降级链）：一条 pipeline 挂了，退回单设备继续，任务不能丢。"""
+    """降级链：一条 pipeline 挂了，退回单设备继续，任务不能丢（见 SPEC.md · CLI 管道契约）。"""
     doomed = make_worker("DOOMED", fatal_on={"t0"})
     healthy = make_worker("HEALTHY", delay=0.001)
     degraded: list[str] = []

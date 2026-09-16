@@ -1,4 +1,4 @@
-"""长文本分段与换行保真（NPU 实现要点 / CLI 管道契约）。
+"""长文本分段与换行保真（SPEC.md · NPU 实现要点 · 长文本与换行三档）。
 
 NPU 的 KV cache 只有 768（512+256），长文本**必须**先切段再逐段翻译，否则被静默截断。
 
@@ -15,7 +15,7 @@ NPU 的 KV cache 只有 768（512+256），长文本**必须**先切段再逐段
 根因两个：`split_sentences` 的 `strip()` 吃掉段落边界换行；`join()` 用 `" ".join(buf)`
 把段与段用空格连（中文还会被插入多余空格）。
 
-## 三档语义（CLI 管道契约）
+## 三档语义（SPEC.md · CLI 管道契约）
 
 | 模式 | 单元粒度 | 单元内是否含 `\\n` | 行数保真 | 适用 |
 |---|---|---|---|---|
@@ -120,7 +120,7 @@ class Plan:
     def validate(self, translations: list[str]) -> list[int]:
         """返回**输出行数 != 输入行数**的单元序号（空列表 = 全部对齐）。
 
-        翻译层据此决定是否把该批退回逐行重翻（CLI 管道契约）。
+        翻译层据此决定是否把该批退回逐行重翻（SPEC.md · CLI 管道契约）。
         """
         bad: list[int] = []
         for unit, out in zip(self.units, translations):
@@ -366,7 +366,7 @@ def _pack_lines(
 ) -> int:
     """hard 打包快路径：把总长 ≤ max_chars 的连续行打成一个请求。
 
-    行数靠 `Unit.sources` 记录，译文行数对不上时调用方退回逐行重翻（CLI 管道契约）。
+    行数靠 `Unit.sources` 记录，译文行数对不上时调用方退回逐行重翻（SPEC.md · CLI 管道契约）。
     """
     batch: list[str] = []
     batch_start = 0

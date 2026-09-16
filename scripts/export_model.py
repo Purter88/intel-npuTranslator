@@ -1,4 +1,4 @@
-"""本地导出 OpenVINO IR + INT4 量化（模型）。
+"""本地导出 OpenVINO IR + INT4 量化（SPEC.md · 模型）。
 
 ⚠️ 绝大多数情况**不需要**跑这个脚本：现成权重 rainhenry/HY-MT1.5-1.8B-int4-ov-npu
    已 INT4 量化且 NPU 就绪，直接用 scripts/fetch_model.py 拉取即可。

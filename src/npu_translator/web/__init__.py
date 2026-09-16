@@ -1,4 +1,4 @@
-"""nputweb —— WebUI 子包（WebUI（nputweb））。
+"""nputweb —— WebUI 子包（SPEC.md · WebUI（nputweb））。
 
 与上层介绍的差别：本包只是**命名空间**，真正的模块一律惰性导入。
 
