@@ -7,6 +7,7 @@
     python scripts/build.py --model HY-MT1.5-1.8B-int4-ov-npu
     python scripts/build.py --list-models
     python scripts/build.py --python C:\\Python311\\python.exe
+    python scripts/build.py --mirror https://mirrors.aliyun.com/pypi/simple
     python scripts/build.py --clean           # 只删 bin\\（不动 venv 与模型）
 
 产出 ``bin\\nputr.cmd``、``bin\\nputweb.cmd`` 与 ``bin\\nputserve.cmd`` 三个转发脚本。
@@ -26,9 +27,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
@@ -40,7 +44,23 @@ REQUIREMENTS = ROOT / "requirements.txt"
 FETCH_MODEL = ROOT / "scripts" / "fetch_model.py"
 MODEL_DIR = ROOT / "models"
 
-PIP_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
+# pip 源候选：按顺序探测，第一个真正能下载的胜出。
+#
+# 为什么不再写死一个：本脚本原来硬编码清华源，而清华源在这台机上**直接返回 HTTP 403**
+# （实测 urllib 直连：阿里云 / 腾讯云 / 华为云 / PyPI 官方都是 200，只有清华 403）。
+# 源挂掉最阴的地方不在 requirements.txt —— 依赖都装过时 pip 只打印
+# "already satisfied"，一步网络都不走，看不出异常；真正会炸的是最后一步
+# `pip install -e .`：PEP 517 构建隔离要去源上拉 setuptools>=68，源不可达就整条构建失败。
+# 所以这里逐个探测，别再把命运押在单一镜像上。要指定用 `--mirror <url>`。
+MIRRORS: list[tuple[str, str]] = [
+    ("阿里云", "https://mirrors.aliyun.com/pypi/simple"),
+    ("腾讯云", "https://mirrors.cloud.tencent.com/pypi/simple"),
+    ("华为云", "https://mirrors.huaweicloud.com/repository/pypi/simple"),
+    ("清华", "https://pypi.tuna.tsinghua.edu.cn/simple"),
+    ("PyPI 官方", "https://pypi.org/simple"),
+]
+PROBE_TIMEOUT = 8
+
 WANT_PY = (3, 11)
 
 
@@ -117,6 +137,45 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> int:
     return subprocess.run([str(c) for c in cmd], cwd=str(cwd or ROOT)).returncode
 
 
+def probe_index(url: str) -> tuple[bool, str]:
+    """源到底能不能下包：拉一个必定存在的索引页（`setuptools/`），只看状态码。"""
+    target = url.rstrip("/") + "/setuptools/"
+    req = urllib.request.Request(target, headers={"User-Agent": "npu-translator-build/0.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as resp:
+            resp.read(1)  # 别把整个索引页读进来，能连上就够了
+            return resp.status == 200, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code}"
+    except Exception as e:  # noqa: BLE001 - 超时 / DNS / 代理，原因统一打出来给人看
+        return False, f"{type(e).__name__}: {e}"
+
+
+def choose_index(explicit: str | None) -> str | None:
+    """挑一个能用的 pip 源。全挂了返回 None —— 离线模式，pip 用自己默认的源跑，
+    能不能成就取决于 venv 里已经装了什么。"""
+    if explicit:
+        info(f"    pip 源（命令行指定）：{explicit}")
+        return explicit.rstrip("/")
+    step("探测 pip 源")
+    for name, url in MIRRORS:
+        ok, why = probe_index(url)
+        if ok:
+            info(f"    命中 {name}：{url}")
+            return url.rstrip("/")
+        info(f"    不可用，跳过 {name} {url} -> {why}")
+    info("    全部不通，转离线模式：只能复用 venv 里已经装好的东西")
+    return None
+
+
+def pip_install(index: str | None, *args: str) -> list[str]:
+    """组装 `-m pip install ...`；源不可用时干脆不带 -i（不然又是同一个死地址）。"""
+    cmd = ["-m", "pip", "install", *args]
+    if index:
+        cmd += ["-i", index]
+    return cmd
+
+
 def venv_python() -> Path:
     if sys.platform == "win32":
         return VENV_DIR / "Scripts" / "python.exe"
@@ -127,11 +186,36 @@ def venv_python() -> Path:
 
 
 def pick_interpreter(wanted: str | None) -> str:
-    """挑一个用来建 venv 的解释器；优先 3.11（实测组合）。"""
-    candidates = [wanted] if wanted else [shutil.which("python"), shutil.which("py"), shutil.which("python3")]
+    """挑一个用来建 venv 的解释器；优先 3.11（实测组合，openvino wheel 最全）。
+
+    原来这里写着「优先 3.11」，实际是取**候选表里第一个能跑的** —— 版本对不对照
+    全看 PATH 前面站的是谁（本机实测就挑走了 3.13）。现在按版本号真挑：
+    先评估全部候选，有 3.11 用 3.11，没有才退回，并且把退回事说清楚。
+    """
+    if wanted:
+        candidates = [wanted]
+    else:
+        candidates = [
+            shutil.which("python"),
+            shutil.which("py"),
+            shutil.which("python3"),
+            sys.executable,
+        ]
+
+    # Windows 下 python.exe / python.EXE / ...\\python3.exe 常常是同一个文件，
+    # 去重必须按大小写无关比 —— 按原字符串比会把同一解释器探三遍。
+    deduped: list[str] = []
+    seen: set[str] = set()
     for c in candidates:
         if not c:
             continue
+        key = os.path.normcase(str(c))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(str(c))
+
+    working: list[tuple[str, str]] = []
+    for c in deduped:
         try:
             out = subprocess.run(
                 [c, "-c", "import sys;print('%d.%d'%sys.version_info[:2])"],
@@ -139,12 +223,25 @@ def pick_interpreter(wanted: str | None) -> str:
             )
         except Exception:
             continue
-        if out.returncode == 0:
-            ver = out.stdout.strip()
-            mark = " (匹配 3.11)" if ver == f"{WANT_PY[0]}.{WANT_PY[1]}" else ""
-            info(f"    解释器 {c} -> Python {ver}{mark}")
-            return c
-    die("找不到可用的 Python 解释器，用 --python 指定一个")
+        if out.returncode != 0:
+            continue
+        ver = out.stdout.strip()
+        info(f"    解释器 {c} -> Python {ver}")
+        working.append((c, ver))
+
+    if not working:
+        die("找不到可用的 Python 解释器，用 --python 指定一个")
+
+    want = f"{WANT_PY[0]}.{WANT_PY[1]}"
+    exact = next((p for p, v in working if v == want), None)
+    if exact:
+        info(f"    选中 Python {want}：{exact}")
+        return exact
+
+    path, ver = working[0]
+    if not wanted:
+        info(f"    没有 {want}，退回 {path} (Python {ver})：openvino 在别的版本上可能缺 wheel")
+    return path
 
 
 def ensure_venv(python: str) -> Path:
@@ -160,18 +257,40 @@ def ensure_venv(python: str) -> Path:
     return venv_python()
 
 
-def install_deps(vp: Path, upgrade_pip: bool) -> None:
+def install_deps(vp: Path, upgrade_pip: bool, index: str | None) -> None:
     step("安装运行时依赖")
     # 默认**不**升级 pip：本机踩过「pip install 被中断后清空 site-packages」的事故，
     # 而升级 pip 对"程序能不能跑起来"没有任何帮助。真要升用 --upgrade-pip。
     if upgrade_pip:
-        if run([vp, "-m", "pip", "install", "--upgrade", "pip", "-i", PIP_MIRROR]) != 0:
+        if run([vp, *pip_install(index, "--upgrade", "pip")]) != 0:
             die("pip 升级失败")
-    if run([vp, "-m", "pip", "install", "-r", str(REQUIREMENTS), "-i", PIP_MIRROR]) != 0:
+    if run([vp, *pip_install(index, "-r", str(REQUIREMENTS))]) != 0:
         die("依赖安装失败")
-    # editable install：提供 console script 与 dist-info 元数据（见文件头第 2 条约定）
+    editable_install(vp, index)
+
+
+def editable_install(vp: Path, index: str | None) -> None:
+    """editable install：提供 console script 与 dist-info 元数据（见文件头第 2 条约定）。
+
+    两档策略，第一档失败才用第二档：
+    1. 标准 PEP 517 构建隔离 —— pip 临时造一个干净环境装 setuptools>=68。
+       干净是好，代价是**必须联网**：源一挂（本机清华 403 就是这么炸的）这一步必死。
+    2. 退回 ``--no-build-isolation`` —— 用 venv 自带的 setuptools 构建，不用联网。
+       前提是 venv 里有 ``setuptools>=68`` 和 ``wheel``（pyproject 的 build-system 要求），
+       所以先把它们补上再重试；本机 venv 原本是 setuptools 65.5.0 + 没有 wheel，
+       直接退回会报 ``invalid command 'bdist_wheel'``。
+    """
     step("可编辑安装 npu_translator")
-    if run([vp, "-m", "pip", "install", "-e", ".", "--no-deps", "-i", PIP_MIRROR]) != 0:
+    if run([vp, *pip_install(index, "-e", ".", "--no-deps")]) == 0:
+        return
+
+    info("    构建隔离走不通，改用 venv 自带的构建后端重试")
+    if run([vp, *pip_install(index, "--upgrade", "setuptools>=68", "wheel")]) != 0:
+        die(
+            "可编辑安装失败：构建隔离不可用，补装 setuptools>=68 / wheel 也没成功。\n"
+            "    现在的网络拿不到任何 pip 源，用 --mirror <url> 指一个能用的"
+        )
+    if run([vp, *pip_install(index, "-e", ".", "--no-deps", "--no-build-isolation")]) != 0:
         die("可编辑安装失败")
 
 
@@ -290,6 +409,12 @@ def main() -> int:
     ap.add_argument("--skip-model", action="store_true", help="跳过模型下载")
     ap.add_argument("--list-models", action="store_true", help="列出可用模型后退出")
     ap.add_argument("--no-deps", action="store_true", help="跳过依赖安装（只重建转发脚本）")
+    ap.add_argument(
+        "--mirror",
+        default=None,
+        metavar="URL",
+        help="指定 pip 源（默认自动探测 MIRRORS，见脚本内注释）",
+    )
     ap.add_argument("--upgrade-pip", action="store_true", help="顺带升级 pip（默认不升，见 install_deps 注释）")
     ap.add_argument("--clean", action="store_true", help="删除 bin\\ 后退出（不动 venv 与模型）")
     args = ap.parse_args()
@@ -313,7 +438,8 @@ def main() -> int:
     python = pick_interpreter(args.python)
     vp = ensure_venv(python)
     if not args.no_deps:
-        install_deps(vp, args.upgrade_pip)
+        # 只在真要联网的时刻才探测源：--no-deps / --clean / --list-models 不该付这个代价
+        install_deps(vp, args.upgrade_pip, choose_index(args.mirror))
 
     spec = choose_model(args)
     if spec:
