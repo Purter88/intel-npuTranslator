@@ -1,0 +1,25 @@
+# Issue 表单的配置。
+#
+# 为什么 blank_issues_enabled: false
+#   「我装不上」这种一句话 issue 没有环境信息（版本 / OS / Python / 设备 / 模型），
+#   来回问三轮才能复现。两个模板把该问的一次问完。
+blank_issues_enabled: false
+
+contact_links:
+  # 🔴 安全漏洞必须走这里，不能开公开 issue。
+  #    在公开页面描述漏洞 = 给所有想探测的人发了一份指南；
+  #    修好之前的窗口期里，用户是裸奔的。
+  - name: 🔒 报告安全漏洞（私密）
+    url: https://github.com/Purter88/intel-npuTranslator/security/advisories/new
+    about: >-
+      请不要在公开 issue 里描述安全漏洞。走 Security Advisories 私密报告，
+      流程与响应时间见 SECURITY.md。
+
+  # 剩下这两条是"先看再问"：技术契约里已经写清楚的东西，读一遍比等回复快。
+  - name: 📄 技术契约 docs/SPEC.md
+    url: https://github.com/Purter88/intel-npuTranslator/blob/main/docs/SPEC.md
+    about: 动手改代码前必读。约束是什么、为什么这么定，都在这里。
+
+  - name: 🙋 上手与常见问题
+    url: https://github.com/Purter88/intel-npuTranslator/blob/main/README.md
+    about: 快速开始、CLI 选项、平台支持、FAQ、Windows 编码坑。

@@ -1,0 +1,176 @@
+# =============================================================================
+# CI —— 设计取舍写在注释里，改这个 workflow 之前请先读完。
+#
+# 一句话取舍：**主 job 不装 OpenVINO**。
+#
+# 理由（实测，不是估计）：
+#   * `requirements.txt` 含 `openvino` / `openvino-genai`（数百 MB），每轮都装会让 PR 检查变成
+#     几分钟起步 —— 而那几分钟换来的覆盖率是 **0**：
+#     全量单测**一个都不需要 OpenVINO**。项目刻意做了惰性导入（`import npu_translator`
+#     不得拉起 OpenVINO 运行时），所以纯逻辑测试在没有它的时候照样跑。
+#   * 实测：只装 pytest / typer / click / fastapi / httpx / cryptography 六个包，
+#     `pytest tests -q` 全绿（全套约 10 秒）。
+#   * 「完整依赖装不装得出来」是**另一件事**，另开一个重型 job 每周 / 手动跑，
+#     不占用 PR 的时间预算。
+#
+# 因此这里刻意：
+#   * 不 `pip install -r requirements.txt`
+#   * 也不 `pip install -e .`（那会把 pyproject 里的 openvino 一并拉下来）
+#     —— 测试靠 `pyproject.toml` 的 `pythonpath = ["src"]` + `tests/conftest.py` 找到源码。
+#
+# 其它两条硬约束：
+#   * **不要假设 CI 有 NPU。** 套件本来就不加载模型、不碰设备（见上）。
+#   * 🔴 **不要为了让 CI 变绿去改测试或放宽断言。** 红了先怀疑环境，再怀疑代码，最后才怀疑断言。
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # 重型的「完整依赖」job 只在这里跑，不占用 PR 的时间预算
+  schedule:
+    - cron: "23 4 * * 1" # 每周一 UTC 04:23
+  workflow_dispatch:
+
+# 最小权限：只读代码，什么都写不了
+permissions:
+  contents: read
+
+# 同一个 ref 上重复推送时，取消还在跑的旧一轮
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 编码由程序自己全权控制（见 docs/SPEC.md · CLI 管道契约），
+  # 这里只是给 runner 上一个确定的 UTF-8 兜底，免得 C locale 把 stdout 变成 ascii。
+  PYTHONUTF8: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  tests:
+    name: pytest · Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 为什么只有 3.11：
+        #   * 项目锁定 3.11（requirements.txt 顶部注明了原因：3.11 的 wheel 最全），
+        #     全部单测也只在 3.11 上跑过。
+        #   * 加一个**没有实测背书**的 3.12/3.13 进 matrix，等于先挂一盏红灯再去找理由摘它 ——
+        #     CI 一旦「可能红」，就没人再信它，那才是真正的摆设。
+        # 要加新版本：先在真机上把 `pytest tests -q` 跑绿，再把版本号加到下面这一行。
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          # 只作为 pip 下载缓存的 key（下面装的不是这份清单里的东西，
+          # 见文件头的取舍说明）；挑 pyproject 是因为它是唯一一份依赖元数据。
+          cache-dependency-path: pyproject.toml
+
+      - name: 安装测试所需的**最小**依赖
+        # 刻意不用 requirements.txt / 不装包本体，理由见文件头。
+        # click 是显式列出来的：测试直接 `from click.testing import CliRunner`，
+        # 而 typer 的新版本已经不再传递依赖 click 了 —— 不写会直接 collection error。
+        # httpx 同理：FastAPI 的 TestClient 依赖它（运行时不需要，所以只在 dev 依赖里）。
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "pytest>=8.0" \
+            "typer" \
+            "click" \
+            "fastapi" \
+            "httpx" \
+            "cryptography"
+
+      - name: 跑全量单测
+        # 不给 --basetemp：pytest 默认用系统临时目录并自动加编号，
+        # 天然不会撞 tmp_path 的残骸，也天然在仓库外
+        # （证书用例会生成自签私钥，残留在仓库里被提交就是永久泄漏 —— 见 CONTRIBUTING.md）。
+        run: python -m pytest tests -q
+
+  # ---------------------------------------------------------------------------
+  lint:
+    name: ruff（Pyflakes，非阻塞）
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # ⚠️ 现状是**非阻塞**的：仓库当前在这套规则下有 19 处告警
+    #    （绝大多数是 `__init__.py` 里惰性导出造成的 F401 误报，另有 1 处真的 F821）。
+    #    挂着 continue-on-error 是为了让信号**先出现**：红灯能看见，但不会拦住 PR。
+    #    清完之后请把这两行删掉 —— 那时它就该是阻塞的。
+    #
+    #    🔴 刻意**没有**为了变绿而给它们加 `# noqa`：
+    #       那 1 处 F821（Undefined name）是真的 bug，加 noqa 等于把它埋起来。
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 装 ruff
+        # 锁版本：ruff 的规则集会变（例如 E999 已在 0.16 被移除，写进 --select 会直接让命令失败），
+        # 不锁的话某天 CI 会莫名其妙地红。
+        run: python -m pip install "ruff==0.16.7"
+
+      - name: ruff check --select F
+        # 只跑 Pyflakes（F）：未定义名、未使用的 import、重复定义这类**真错误**。
+        # 不跑 E/I/S/UP 等风格与 Opinionated 规则 —— 那几十项属于"将来要不要统一"的口味问题，
+        # 现在全开只会把真正的错误淹没在噪音里。
+        run: ruff check --select F --no-cache .
+
+  # ---------------------------------------------------------------------------
+  runtime-deps:
+    name: 完整运行时依赖（重型 · 仅每周 / 手动）
+    # 只在 schedule / 手动触发时跑：这里会真装 openvino（数百 MB），
+    # 放到每次 PR 上跑不值得 —— 它验的是「完整依赖装不装得出来」，
+    # 而绝大多数 PR 根本不碰依赖清单。
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    # 双重保险：既限定了触发时机（见上），也给 continue-on-error。
+    # 理由：这个 job **唯一会红的环节不在我们控制范围内** —— openvino 的 wheel 是
+    # 上游按 Python 版本 / glibc / manylinux 标签发布的，某周上游改了发布方式、
+    # 或 runner 镜像升了 glibc，这里就会红。那不是代码回归，却会让仓库徽章变红，
+    # 跟真正的回归 indistinguishable —— 徽章一旦长期是红的，等于没有徽章。
+    # 真正的信号不靠红绿灯：看这个 job 的**日志**（装上了没、import 得进来没）。
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 按 requirements.txt 装完整依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          # 测试专用：requirements.txt 里没有（它们只在 requirements-dev.txt 里）
+          python -m pip install "pytest>=8.0" "httpx" "click"
+
+      - name: 锁定的版本组合必须装得上、import 得进来
+        # 这一条的意义：openvino-genai 的 wheel 与 glibc / libstdc++ 强相关，
+        # 「requirements.txt 写得对」不等于「在干净的 Linux 上装得出来」。
+        run: |
+          python -c "import openvino; print('openvino', openvino.__version__)"
+          python -c "import openvino_genai; print('openvino_genai ok')"
+          python -c "import openvino_tokenizers; print('openvino_tokenizers ok')"
+          python -c "import psutil, typer; print('psutil/typer ok')"
+
+      - name: 装上 OpenVINO 之后再跑一遍全量单测
+        # 与主 job 形成对照：主 job 证明「没有 openvino 也全绿」，
+        # 这里证明「有了 openvino 也全绿」—— 两边都绿，才说明没有人悄悄依赖它的存在与否。
+        run: python -m pytest tests -q

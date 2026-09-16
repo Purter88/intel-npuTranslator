@@ -1,0 +1,145 @@
+name: 🐛 Bug 报告
+description: 译文不对、命令报错、进程不退出、WebUI / 服务起不来等
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **提交前请先确认：这是 bug，不是安全漏洞。**
+        >
+        > 安全漏洞（token 被绕过、非回环绑定没强制鉴权、译文/私钥泄漏……）**不要**开公开 issue，
+        > 请走 [Security Advisories](https://github.com/Purter88/intel-npuTranslator/security/advisories/new) 私密报告，
+        > 详见 [`SECURITY.md`](../../SECURITY.md)。
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 环境
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: >-
+        `nputr --version` 或 `python -c "import npu_translator; print(npu_translator.__version__)"` 的输出。
+        直接跑的源码就填 commit。
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10 或其它 Windows
+        - Linux（发行版请在"复现步骤"里补一句）
+        - macOS（⚠️ 不支持，见 README 的平台支持表）
+        - 其它 / 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python 版本
+      description: "`python --version` 的输出。项目锁定 3.11。"
+      placeholder: "3.11.9"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: 推理设备
+      description: 用 `-d` / `--device` 指定的那个。`nputr --devices` 能看到本机有哪些。
+      options:
+        - NPU（默认）
+        - CPU
+        - GPU（Intel iGPU）
+        - hetero（NPU + CPU 并行）
+        - auto
+        - 不确定 / 没指定
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: 模型
+      description: >-
+        填**模型名**（`models/` 下的目录名，或 ModelScope repo 的最后一段），例如
+        `HY-MT1.5-1.8B-int4-ov-npu`。
+      placeholder: "HY-MT1.5-1.8B-int4-ov-npu"
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        > 🔒 **隐私提醒**：上面三项**不要**填绝对路径。
+        > Windows 路径里的盘符与目录结构会把你的**用户名**一起带出去；
+        > 这类泄漏不会报错，只会安静地躺在 issue 里（见 `docs/SPEC.md · Git 约定：本机绝对路径禁止入库`）。
+
+  - type: markdown
+    attributes:
+      value: |
+        ## 复现
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 一条能直接跑的命令最好。**绝对路径请改成相对路径或占位符。**
+      placeholder: |
+        1. nputr -i input.txt --to ja -o out.txt
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 报错就贴完整报错；结果不对就贴译文与原文。**仍然不要贴绝对路径。**
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug
+    attributes:
+      label: 诊断输出
+      description: >-
+        `nputserve --debug` / `nputweb --debug` 的输出；CLI 用 `nputr -v`，
+        卡在"译完了不退出"再补一次 `NPT_EXIT_DEBUG=1 nputr ...`。
+      render: shell
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        > 🔒 **贴之前请脱敏**：删掉**绝对路径、token、证书与私钥内容**。
+        > **私钥一旦贴进公开页面就是永久泄漏** —— 删掉 issue 也救不回已经看过的人。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经确认这不是安全漏洞（是的话请走 Security Advisories，不要开公开 issue）
+          required: true
+        - label: 输出里的绝对路径 / token / 证书与私钥内容已经删掉或替换成占位符
+          required: true
+        - label: 我跑过 `pytest tests -q` 并且是全绿的（或者说明为什么跑不了）
+          required: false

@@ -1,0 +1,77 @@
+name: ✨ 功能建议
+description: 想要的能力、现有行为的改进想法
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 提之前建议先扫一眼 [`docs/SPEC.md`](../../docs/SPEC.md) 的「目标与非目标」与
+        > 「已排除的方案（别重走）」—— 有些想法是**刻意不做**的，那里写了原因。
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 你的场景
+      description: >-
+        你当时在干什么、想达成什么。**写场景，别直接写方案** ——
+        知道你要解决什么问题，才可能有比你提的那个更好的做法。
+      placeholder: |
+        我在翻一整本 PDF，每次都要手动切成 500 字一段再喂进去……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expectation
+    attributes:
+      label: 期望行为
+      description: 你希望它变成什么样。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已经试过的替代方案（可选）
+      description: 现在你是怎么绕过去的？效果差在哪？
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 主要平台
+      description: 决定优先级用。平台支持矩阵见 `README.md`。
+      options:
+        - Windows 11 + Intel NPU
+        - Windows（CPU）
+        - Linux
+        - ARM64
+        - 跟平台无关
+    validations:
+      required: false
+
+  - type: dropdown
+    id: pr
+    attributes:
+      label: 愿意提 PR 吗
+      description: >-
+        选"愿意"的话，我们会先跟你对齐方案再让你动手 —— 免得写完发现方向不对。
+        提 PR 前请看 [`CONTRIBUTING.md`](../../CONTRIBUTING.md)。
+      options:
+        - "愿意，方案定了我来写"
+        - "可以试，但需要人带一下"
+        - "暂时没空，只想提想法"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 这不是安全漏洞（是的话请走 Security Advisories，不要开公开 issue）
+          required: true
+        - label: 我已经搜过现有 issue，没有重复的
+          required: true
